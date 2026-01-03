@@ -6,6 +6,7 @@
 #include <DirectXMath.h>
 #include <string>
 #include "../audio/AudioEngine.h"
+#include "../Config.h"
 
 using namespace DirectX;
 
@@ -94,8 +95,12 @@ private:
     bool m_showHelp = false;
     bool m_showInfo = false;
     bool m_showClock = false;
+    bool m_showDisableMenu = false;
     bool m_useNormalized = true;
     bool m_isFullscreen = false;
+    
+    // Config
+    Config m_config;
     
     // Text Rendering
     ID3D11Texture2D* m_textTexture = nullptr;
@@ -119,6 +124,14 @@ private:
     
     void HandleInput(WPARAM key);
     void RenderOSD();
+    void RenderClock();
     void UpdateTextTexture(const std::string& text, bool rightAlign = false);
     void CreateTextResources();
+    
+    // Config & Visualization Management
+    void LoadConfigIntoState();
+    void SaveStateToConfig();
+    void ResetToDefaults();
+    std::string GetVisualizationName(int vis);
+    int GetNextEnabledVis(int currentVis, bool forward = true);
 };

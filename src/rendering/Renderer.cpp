@@ -203,9 +203,17 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startV
 
     CreateTextResources();
 
-    // Start with a random background
-    m_showBackground = true;
-    LoadRandomBackground();
+    // Load config and apply settings
+    m_config.Load();
+    LoadConfigIntoState();
+    // Mark as dirty so it saves periodically
+    m_config.isDirty = true;
+    
+    // If no background set, start with a random one
+    if (!m_showBackground || m_currentBgIndex < 0) {
+        m_showBackground = true;
+        LoadRandomBackground();
+    }
 
     ShowWindow(m_hwnd, SW_SHOWDEFAULT);
     return true;
@@ -223,12 +231,30 @@ void Renderer::Run(float timeoutSeconds) {
         } else {
             Render();
             
+            // Periodically save config if dirty (every 5 seconds)
+            m_config.timeSinceLastSave += 0.016f; // Approximate frame time
+            if (m_config.isDirty && m_config.timeSinceLastSave >= 5.0f) {
+                m_config.Save();
+                m_config.timeSinceLastSave = 0.0f;
+            }
+            
             // Check timeout
             if (m_timeoutSeconds > 0.0f && m_runningTime >= m_timeoutSeconds) {
                 std::cout << "Timeout reached (" << m_timeoutSeconds << "s), exiting..." << std::endl;
+                // Save config before exit
+                if (m_config.isDirty) {
+                    SaveStateToConfig();
+                    m_config.Save();
+                }
                 PostQuitMessage(0);
             }
         }
+    }
+    
+    // Save config on exit
+    if (m_config.isDirty) {
+        SaveStateToConfig();
+        m_config.Save();
     }
 }
 
@@ -354,7 +380,7 @@ void Renderer::UpdateTextTexture(const std::string& text, bool rightAlign) {
         DeleteObject(hBlackBrush);
 
         // 2. Setup Font
-        HFONT hFont = CreateFont(56, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial");
+        HFONT hFont = CreateFont(56, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Comic Sans MS");
         SelectObject(hdc, hFont);
 
         // 3. Measure Text
@@ -406,30 +432,54 @@ void Renderer::UpdateTextTexture(const std::string& text, bool rightAlign) {
 }
 
 void Renderer::RenderOSD() {
-    if (!m_showHelp && !m_showInfo && !m_showClock) return;
+    // Render clock first if enabled (independent of other overlays)
+    if (m_showClock) {
+        RenderClock();
+    }
+    
+    if (!m_showHelp && !m_showInfo && !m_showDisableMenu) return;
 
     std::string osdText;
     bool rightAlign = false;
 
-    if (m_showHelp) {
+    if (m_showDisableMenu) {
+        osdText = "VISUALIZATION MENU:\n\n";
+        osdText += "Press number to toggle:\n\n";
+        
+        for (int i = 0; i < 4; i++) {
+            osdText += std::to_string(i + 1) + ": " + GetVisualizationName(i);
+            osdText += (m_config.visEnabled[i] ? " [ENABLED]\n" : " [DISABLED]\n");
+        }
+        
+        osdText += "\nD: Close Menu\n";
+        osdText += "X: Reset All Settings";
+    } else if (m_showHelp) {
         if (m_currentVis == Visualization::Spectrum) {
             osdText = "HELP (SPECTRUM):\n\n"
                       "H: Toggle Help\n"
                       "I: Toggle Info\n"
                       "C: Toggle Clock\n"
+                      "D: Disable Menu\n"
+                      "X: Reset Settings\n"
                       "F: Toggle Fullscreen\n"
                       "B: Random Background\n"
                       "[/]: Prev/Next Background\n"
                       "-/=: Adjust Decay\n"
+                      "1-4: Jump to Vis\n"
                       "Left/Right: Change Vis\n"
+                      "R: Random Vis\n"
                       "ESC: Quit";
         } else if (m_currentVis == Visualization::CyberValley2) {
             osdText = "HELP (CYBER VALLEY 2):\n\n"
                       "H: Toggle Help\n"
                       "I: Toggle Info\n"
                       "C: Toggle Clock\n"
+                      "D: Disable Menu\n"
+                      "X: Reset Settings\n"
                       "F: Toggle Fullscreen\n"
+                      "1-4: Jump to Vis\n"
                       "Left/Right: Change Vis\n"
+                      "R: Random Vis\n"
                       "V: Toggle Sun/Moon\n"
                       "G: Toggle Grid\n"
                       "-/=: Adjust Speed\n"
@@ -439,12 +489,15 @@ void Renderer::RenderOSD() {
                       "H: Toggle Help\n"
                       "I: Toggle Info\n"
                       "C: Toggle Clock\n"
+                      "D: Disable Menu\n"
+                      "X: Reset Settings\n"
                       "F: Toggle Fullscreen\n"
                       "B: Random Background\n"
                       "[/]: Prev/Next Background\n"
                       ",/.: Adjust Fade Rate\n"
                       "-/=: Adjust Scroll Speed\n"
                       "M: Cycle Mirror Mode\n"
+                      "1-4: Jump to Vis\n"
                       "Left/Right: Change Vis\n"
                       "ESC: Quit";
         } else if (m_currentVis == Visualization::Spectrum2) {
@@ -452,12 +505,16 @@ void Renderer::RenderOSD() {
                       "H: Toggle Help\n"
                       "I: Toggle Info\n"
                       "C: Toggle Clock\n"
+                      "D: Disable Menu\n"
+                      "X: Reset Settings\n"
                       "F: Toggle Fullscreen\n"
                       "B: Random Background\n"
                       "[/]: Prev/Next Background\n"
                       "-/=: Adjust Decay\n"
                       "M: Cycle Mirror Mode\n"
+                      "1-4: Jump to Vis\n"
                       "Left/Right: Change Vis\n"
+                      "R: Random Vis\n"
                       "ESC: Quit";
         }
     } else if (m_showInfo) {
@@ -492,26 +549,6 @@ void Renderer::RenderOSD() {
         }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
         ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No");
-        osdText = ss.str();
-    } else if (m_showClock) {
-        rightAlign = true;
-        time_t now = time(0);
-        tm* ltm = localtime(&now);
-        
-        std::stringstream ss;
-        ss << std::setfill('0') << std::setw(2) << ltm->tm_hour << ":"
-           << std::setfill('0') << std::setw(2) << ltm->tm_min << ":"
-           << std::setfill('0') << std::setw(2) << ltm->tm_sec << "\n";
-           
-        char buffer[80];
-        strftime(buffer, 80, "%d/%m/%Y", ltm);
-        ss << buffer;
-        ss << "\n";
-        
-        char dayBuffer[80];
-        strftime(dayBuffer, 80, "%A", ltm);
-        ss << dayBuffer;
-        
         osdText = ss.str();
     }
 
@@ -646,50 +683,73 @@ void Renderer::HandleInput(WPARAM key) {
     if (key == VK_OEM_COMMA) {  // ',' Key
         if (m_currentVis == Visualization::LineFader) {
             m_lfFadeRate = std::max(0.0005f, m_lfFadeRate - 0.0005f);  // Min 0.05%
+            SaveStateToConfig();
         }
     } else if (key == VK_OEM_PERIOD) {  // '.' Key
         if (m_currentVis == Visualization::LineFader) {
             m_lfFadeRate = std::min(0.005f, m_lfFadeRate + 0.0005f);  // Max 0.50%
+            SaveStateToConfig();
         }
     } else if (key == VK_OEM_MINUS || key == VK_SUBTRACT) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
+            SaveStateToConfig();
         } else if (m_currentVis == Visualization::CyberValley2) {
             m_cv2Speed = std::max(5.0f, m_cv2Speed - 5.0f);  // Minimum 5% (very slow, 20s to horizon)
+            SaveStateToConfig();
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::max(1, m_lfScrollSpeed - 1);  // Minimum 1 pixel
+            SaveStateToConfig();
         } else if (m_currentVis == Visualization::Spectrum2) {
             m_s2DecayRate = std::max(0.1f, m_s2DecayRate - 0.5f);
+            SaveStateToConfig();
         }
     } else if (key == VK_OEM_PLUS || key == VK_ADD) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::min(20.0f, m_decayRate + 0.5f);
+            SaveStateToConfig();
         } else if (m_currentVis == Visualization::CyberValley2) {
             m_cv2Speed = std::min(200.0f, m_cv2Speed + 5.0f);  // Maximum 200% (very fast, 0.5s to horizon)
+            SaveStateToConfig();
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::min(50, m_lfScrollSpeed + 1);  // Maximum 50 pixels
+            SaveStateToConfig();
         } else if (m_currentVis == Visualization::Spectrum2) {
             m_s2DecayRate = std::min(20.0f, m_s2DecayRate + 0.5f);
+            SaveStateToConfig();
         }
     } else if (key == 'H') {
         m_showHelp = !m_showHelp;
         if (m_showHelp) {
             m_showInfo = false;
             m_showClock = false;
+            m_showDisableMenu = false;
         }
     } else if (key == 'I') {
         m_showInfo = !m_showInfo;
-        if (m_showInfo) { m_showHelp = false; m_showClock = false; }
+        if (m_showInfo) { m_showHelp = false; m_showClock = false; m_showDisableMenu = false; }
     } else if (key == 'C') {
         m_showClock = !m_showClock;
-        if (m_showClock) { m_showHelp = false; m_showInfo = false; }
+        SaveStateToConfig();
+    } else if (key == 'D') {
+        m_showDisableMenu = !m_showDisableMenu;
+        if (m_showDisableMenu) { m_showHelp = false; m_showInfo = false; m_showClock = false; }
+    } else if (key == 'X') {
+        // Reset all settings to defaults
+        ResetToDefaults();
+        m_showDisableMenu = false;
+        m_showHelp = false;
+        m_showInfo = false;
+        m_showClock = false;
     } else if (key == 'V') {
         if (m_currentVis == Visualization::CyberValley2) {
             m_cv2SunMode = !m_cv2SunMode;
+            SaveStateToConfig();
         }
     } else if (key == 'G') {
         if (m_currentVis == Visualization::CyberValley2) {
             m_cv2ShowGrid = !m_cv2ShowGrid;
+            SaveStateToConfig();
         }
     } else if (key == 'M') {
         if (m_currentVis == Visualization::LineFader) {
@@ -701,6 +761,7 @@ void Renderer::HandleInput(WPARAM key) {
             } else {
                 m_lfMirrorMode = LFMirrorMode::None;
             }
+            SaveStateToConfig();
         } else if (m_currentVis == Visualization::Spectrum2) {
             // Cycle through mirror modes
             if (m_s2MirrorMode == S2MirrorMode::None) {
@@ -710,14 +771,17 @@ void Renderer::HandleInput(WPARAM key) {
             } else {
                 m_s2MirrorMode = S2MirrorMode::None;
             }
+            SaveStateToConfig();
         }
     } else if (key == 'F') {
         m_isFullscreen = !m_isFullscreen;
         m_swapChain->SetFullscreenState(m_isFullscreen, NULL);
+        SaveStateToConfig();
     } else if (key == 'B') {
         // Always load new background, ensure it's shown
         m_showBackground = true;
         LoadRandomBackground();
+        SaveStateToConfig();
     } else if (key == VK_OEM_4) { // '[' Key
         m_showBackground = true;
         if (m_backgroundFiles.empty()) ScanBackgrounds();
@@ -725,6 +789,7 @@ void Renderer::HandleInput(WPARAM key) {
             m_currentBgIndex--;
             if (m_currentBgIndex < 0) m_currentBgIndex = m_backgroundFiles.size() - 1;
             LoadBackground(m_currentBgIndex);
+            SaveStateToConfig();
         }
     } else if (key == VK_OEM_6) { // ']' Key
         m_showBackground = true;
@@ -733,26 +798,83 @@ void Renderer::HandleInput(WPARAM key) {
             m_currentBgIndex++;
             if (m_currentBgIndex >= m_backgroundFiles.size()) m_currentBgIndex = 0;
             LoadBackground(m_currentBgIndex);
+            SaveStateToConfig();
         }
     } else if (key == VK_LEFT) {
-        int vis = (int)m_currentVis - 1;
-        if (vis < 0) vis = 3; // Wrap to last (4 visualizations: 0, 1, 2, 3)
-        m_currentVis = (Visualization)vis;
+        if (m_showDisableMenu) {
+            // Disable menu is showing, don't change vis
+        } else {
+            int nextVis = GetNextEnabledVis((int)m_currentVis, false);
+            m_currentVis = (Visualization)nextVis;
+            SaveStateToConfig();
+        }
     } else if (key == VK_RIGHT) {
-        int vis = (int)m_currentVis + 1;
-        if (vis > 3) vis = 0; // Wrap to first
-        m_currentVis = (Visualization)vis;
+        if (m_showDisableMenu) {
+            // Disable menu is showing, don't change vis
+        } else {
+            int nextVis = GetNextEnabledVis((int)m_currentVis, true);
+            m_currentVis = (Visualization)nextVis;
+            SaveStateToConfig();
+        }
     } else if (key == '1') {
-        m_currentVis = Visualization::Spectrum;
+        if (m_showDisableMenu) {
+            // Toggle Spectrum enabled/disabled
+            m_config.visEnabled[0] = !m_config.visEnabled[0];
+            m_config.isDirty = true;
+        } else {
+            if (m_config.visEnabled[0]) {
+                m_currentVis = Visualization::Spectrum;
+                SaveStateToConfig();
+            }
+        }
     } else if (key == '2') {
-        m_currentVis = Visualization::CyberValley2;
+        if (m_showDisableMenu) {
+            // Toggle CyberValley2 enabled/disabled
+            m_config.visEnabled[1] = !m_config.visEnabled[1];
+            m_config.isDirty = true;
+        } else {
+            if (m_config.visEnabled[1]) {
+                m_currentVis = Visualization::CyberValley2;
+                SaveStateToConfig();
+            }
+        }
     } else if (key == '3') {
-        m_currentVis = Visualization::LineFader;
+        if (m_showDisableMenu) {
+            // Toggle LineFader enabled/disabled
+            m_config.visEnabled[2] = !m_config.visEnabled[2];
+            m_config.isDirty = true;
+        } else {
+            if (m_config.visEnabled[2]) {
+                m_currentVis = Visualization::LineFader;
+                SaveStateToConfig();
+            }
+        }
     } else if (key == '4') {
-        m_currentVis = Visualization::Spectrum2;
+        if (m_showDisableMenu) {
+            // Toggle Spectrum2 enabled/disabled
+            m_config.visEnabled[3] = !m_config.visEnabled[3];
+            m_config.isDirty = true;
+        } else {
+            if (m_config.visEnabled[3]) {
+                m_currentVis = Visualization::Spectrum2;
+                SaveStateToConfig();
+            }
+        }
     } else if (key == 'R') {
-        // Random visualization
-        m_currentVis = (Visualization)(rand() % 4);
+        if (m_showDisableMenu) {
+            // Disable menu is showing, don't do random
+        } else {
+            // Random enabled visualization
+            std::vector<int> enabledVis;
+            for (int i = 0; i < 4; i++) {
+                if (m_config.visEnabled[i]) enabledVis.push_back(i);
+            }
+            if (!enabledVis.empty()) {
+                int randomIndex = rand() % enabledVis.size();
+                m_currentVis = (Visualization)enabledVis[randomIndex];
+                SaveStateToConfig();
+            }
+        }
     } else if (key >= '0' && key <= '9') {
         // TODO: Switch to visualization index
     } else if (key == VK_ESCAPE) {
@@ -1663,4 +1785,172 @@ void Renderer::UpdateSpectrum2Vis(float deltaTime) {
     m_context->PSSetShader(m_pixelShader, NULL, 0);
 
     m_context->Draw((UINT)vertices.size(), 0);
+}
+
+std::string Renderer::GetVisualizationName(int vis) {
+    switch (vis) {
+        case 0: return "Spectrum";
+        case 1: return "CyberValley2";
+        case 2: return "LineFader";
+        case 3: return "Spectrum2";
+        default: return "Unknown";
+    }
+}
+
+int Renderer::GetNextEnabledVis(int currentVis, bool forward) {
+    int numVis = 4;
+    int nextVis = currentVis;
+    int attempts = 0;
+    
+    do {
+        if (forward) {
+            nextVis++;
+            if (nextVis >= numVis) nextVis = 0;
+        } else {
+            nextVis--;
+            if (nextVis < 0) nextVis = numVis - 1;
+        }
+        
+        attempts++;
+        if (attempts >= numVis) {
+            // All disabled, stay on current
+            return currentVis;
+        }
+    } while (!m_config.visEnabled[nextVis]);
+    
+    return nextVis;
+}
+
+void Renderer::LoadConfigIntoState() {
+    m_useNormalized = m_config.useNormalized;
+    m_isFullscreen = m_config.isFullscreen;
+    m_showBackground = m_config.showBackground;
+    m_showClock = m_config.clockEnabled;
+    m_currentBgIndex = m_config.currentBgIndex;
+    m_currentBgPath = m_config.currentBgPath;
+    m_currentVis = (Visualization)m_config.currentVis;
+    
+    m_decayRate = m_config.spectrumDecayRate;
+    
+    m_cv2Time = m_config.cv2Time;
+    m_cv2Speed = m_config.cv2Speed;
+    m_cv2SunMode = m_config.cv2SunMode;
+    m_cv2ShowGrid = m_config.cv2ShowGrid;
+    
+    m_lfScrollSpeed = m_config.lfScrollSpeed;
+    m_lfFadeRate = m_config.lfFadeRate;
+    m_lfMirrorMode = (LFMirrorMode)m_config.lfMirrorMode;
+    
+    m_s2DecayRate = m_config.s2DecayRate;
+    m_s2MirrorMode = (S2MirrorMode)m_config.s2MirrorMode;
+    
+    // Reload background if one was set
+    if (m_showBackground && m_currentBgIndex >= 0) {
+        if (m_backgroundFiles.empty()) ScanBackgrounds();
+        if (m_currentBgIndex < m_backgroundFiles.size()) {
+            LoadBackground(m_currentBgIndex);
+        }
+    }
+}
+
+void Renderer::SaveStateToConfig() {
+    m_config.useNormalized = m_useNormalized;
+    m_config.isFullscreen = m_isFullscreen;
+    m_config.showBackground = m_showBackground;
+    m_config.clockEnabled = m_showClock;
+    m_config.currentBgIndex = m_currentBgIndex;
+    m_config.currentBgPath = m_currentBgPath;
+    m_config.currentVis = (int)m_currentVis;
+    
+    m_config.spectrumDecayRate = m_decayRate;
+    
+    m_config.cv2Time = m_cv2Time;
+    m_config.cv2Speed = m_cv2Speed;
+    m_config.cv2SunMode = m_cv2SunMode;
+    m_config.cv2ShowGrid = m_cv2ShowGrid;
+    
+    m_config.lfScrollSpeed = m_lfScrollSpeed;
+    m_config.lfFadeRate = m_lfFadeRate;
+    m_config.lfMirrorMode = (int)m_lfMirrorMode;
+    
+    m_config.s2DecayRate = m_s2DecayRate;
+    m_config.s2MirrorMode = (int)m_s2MirrorMode;
+    
+    m_config.isDirty = true;
+}
+
+void Renderer::ResetToDefaults() {
+    m_config.Reset();
+    LoadConfigIntoState();
+    
+    // Reset visual states
+    for (int i = 0; i < 16; i++) m_peakLevels[i] = 0.0f;
+    for (int i = 0; i < 28; i++) m_s2PeakLevels[i] = 0.0f;
+    m_cv2GridOffset = 0.0f;
+    m_cv2HistoryWriteIndex = 0;
+    m_cv2TimeSinceLastLine = 0.0f;
+    
+    std::cout << "All settings reset to defaults" << std::endl;
+}
+
+void Renderer::RenderClock() {
+    time_t now = time(0);
+    tm* ltm = localtime(&now);
+    
+    std::stringstream ss;
+    ss << std::setfill('0') << std::setw(2) << ltm->tm_hour << ":"
+       << std::setfill('0') << std::setw(2) << ltm->tm_min << ":"
+       << std::setfill('0') << std::setw(2) << ltm->tm_sec << "\n";
+       
+    char buffer[80];
+    strftime(buffer, 80, "%d/%m/%Y", ltm);
+    ss << buffer;
+    ss << "\n";
+    
+    char dayBuffer[80];
+    strftime(dayBuffer, 80, "%A", ltm);
+    ss << dayBuffer;
+    
+    std::string clockText = ss.str();
+    
+    // Create separate texture for clock (smaller than OSD)
+    UpdateTextTexture(clockText, true);
+
+    // Render clock in top-right corner (same size as help/info)
+    std::vector<Vertex> vertices;
+    float w = 0.8f; // Same width as help/info
+    float h = 0.8f; // Same height as help/info
+    float padding = 0.05f;
+    float x = 1.0f - w - padding; // Top Right
+    float y = 1.0f - padding;
+
+    XMFLOAT4 color = {1.0f, 1.0f, 1.0f, 1.0f};
+    
+    vertices.push_back({ {x, y, 0.0f}, color, {0.0f, 0.0f} });
+    vertices.push_back({ {x + w, y, 0.0f}, color, {1.0f, 0.0f} });
+    vertices.push_back({ {x, y - h, 0.0f}, color, {0.0f, 1.0f} });
+
+    vertices.push_back({ {x + w, y, 0.0f}, color, {1.0f, 0.0f} });
+    vertices.push_back({ {x + w, y - h, 0.0f}, color, {1.0f, 1.0f} });
+    vertices.push_back({ {x, y - h, 0.0f}, color, {0.0f, 1.0f} });
+
+    D3D11_MAPPED_SUBRESOURCE ms;
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    m_context->IASetVertexBuffers(0, 1, &m_vertexBuffer, &stride, &offset);
+    m_context->IASetInputLayout(m_inputLayout);
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->VSSetShader(m_vertexShader, NULL, 0);
+    m_context->PSSetShader(m_pixelShader, NULL, 0);
+    m_context->PSSetShaderResources(0, 1, &m_textSRV);
+
+    m_context->Draw(6, 0);
+    
+    // Unbind texture
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    m_context->PSSetShaderResources(0, 1, &nullSRV);
 }

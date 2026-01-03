@@ -125,22 +125,31 @@ Main:
 h - Help
 b - background
 
+
 Current Vis:
-x - keybinging specific to current vis
+x - example binding
 ```
 
-- h: shows all keyboard shortcuts as an overlay
+- h: shows all keyboard shortcuts as an overlay (hide info screen if showing)
 - 1,2,3,4,5,6,7,8,9,0: go to visualization on index X immediately. If we only have 3 vis numbers 4-0 auto clamp to 3. 0 is treated as 10. if more than 10 visualizations we still only map the first 10. Arrow keys can be used to select the next.
 - left arrow: previous vis, if none (just started, do nothing), if only 1 vis do nothing.
 - right arrow: next vis, if at last vis, loop back to start. if only 1 vis do nothing.
 - r: select random vis.
-- i: info, current visualization name and index, current **Scale** Value, FPS
+- i: info, current visualization name and index, current **Scale** Value, FPS (hides help screen if showing)
 - n: toggle using normalized or raw values for visualization (TODO remove)
 - f: toggle fullescreen
 - b: change background randomly, but ensure we dont use the current one again. (dont go to black)
 - [: previous background (wrap dir listing)
 - ]: next backhround (wrap dir listing) 
-- c: show clock (hides info, help)
+- c: show clock
+- d: Bring up disable menu, shows list of current visualizations with number next to them. pressing its number toggles enabled/disabled. THis will remove the vis from the selection and rotation.
+- r: reset all settings to defaults
+
+## Config
+
+Every N seconds, if config has changed sync to config file in users homedir in a dir named .musicvibecode
+
+config should store all main and visulization settings.
 
 ## Display
 
