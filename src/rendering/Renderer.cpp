@@ -89,11 +89,16 @@ LRESULT CALLBACK Renderer::WindowProc(HWND hWnd, UINT message, WPARAM wParam, LP
     return DefWindowProc(hWnd, message, wParam, lParam);
 }
 
-bool Renderer::Initialize(HINSTANCE hInstance, int width, int height) {
+bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startVis) {
     m_width = width;
     m_height = height;
     QueryPerformanceFrequency(&m_frequency);
     QueryPerformanceCounter(&m_lastTime);
+    
+    // Set starting visualization if specified
+    if (startVis >= 0 && startVis <= 1) {
+        m_currentVis = (Visualization)startVis;
+    }
 
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WindowProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "MusicVisVibeCode", NULL };
     RegisterClassEx(&wc);
@@ -160,7 +165,7 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height) {
     // Create Dynamic Vertex Buffer
     D3D11_BUFFER_DESC bd = {0};
     bd.Usage = D3D11_USAGE_DYNAMIC;
-    bd.ByteWidth = sizeof(Vertex) * 10000; // Enough for many quads
+    bd.ByteWidth = sizeof(Vertex) * 50000; // Enough for complex visualizations
     bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     m_device->CreateBuffer(&bd, NULL, &m_vertexBuffer);
@@ -763,8 +768,8 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
     
     // Constants
     const float HORIZON_Y = 0.2f;  // 40% from top (NDC: 1.0 is top, -1.0 is bottom, so 0.2 is 40% down)
-    const int NUM_MOUNTAIN_POINTS = 64;  // Points per side of mountain
-    const int NUM_DEPTH_LINES = 40;      // Number of lines going toward horizon
+    const int NUM_MOUNTAIN_POINTS = 32;  // Points per side of mountain (reduced for performance)
+    const int NUM_DEPTH_LINES = 30;      // Number of lines going toward horizon (reduced for performance)
     const float MAX_HEIGHT = 0.6f;       // Maximum mountain height
     
     // Update timers

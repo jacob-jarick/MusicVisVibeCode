@@ -6,11 +6,20 @@ manifest.md will serve as detailed agent guide.
 
 # Agent Notes
 
+## Planning
+
+always read from updated Readme.md files and ensure Manifest.md file in same directory matches scope and direction outlined in Readme.md 
+
+## Building 
+
 always rebuild on code updates
 
 always use CMake found here "C:\Program Files\CMake\bin;" 
 
-always sync from updated Readme.md files to Manifest.md files in same directory. 
+## testing
+
+for testing we have a way (run exe with --help ) to run a specific visualisation.
+You should do this for each build, to ensure the build runs and doesnt just crash after 2-5 seconds.
 
 # Project Folders and Files
 
@@ -98,7 +107,18 @@ If a background is available, start with random background displayed always.
 
 ## Controls
 
-Visualizations will have a shared set of master common controls
+Visualizations will have their own controls in addition to the main controls shown. they should never conflict with main controls.
+
+help menu should also show vis specific controls. put a blank line then Vis Controls then vis contol details eg
+
+```
+Main:
+h - Help
+b - background
+
+Current Vis:
+x - keybinging specific to current vis
+```
 
 - h: shows all keyboard shortcuts as an overlay
 - 1,2,3,4,5,6,7,8,9,0: go to visualization on index X immediately. If we only have 3 vis numbers 4-0 auto clamp to 3. 0 is treated as 10. if more than 10 visualizations we still only map the first 10. Arrow keys can be used to select the next.

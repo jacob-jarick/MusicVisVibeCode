@@ -14,7 +14,7 @@ public:
     Renderer(AudioEngine& audioEngine);
     ~Renderer();
 
-    bool Initialize(HINSTANCE hInstance, int width, int height);
+    bool Initialize(HINSTANCE hInstance, int width, int height, int startVis = -1);
     void Run();
 
 private:
