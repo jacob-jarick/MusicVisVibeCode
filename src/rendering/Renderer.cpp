@@ -655,7 +655,7 @@ void Renderer::HandleInput(WPARAM key) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
-            m_cv2Speed = std::max(0.001f, m_cv2Speed - 0.001f);  // Minimum 0.001 lines/sec (very slow)
+            m_cv2Speed = std::max(5.0f, m_cv2Speed - 5.0f);  // Minimum 5% (very slow, 20s to horizon)
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::max(1, m_lfScrollSpeed - 1);  // Minimum 1 pixel
         } else if (m_currentVis == Visualization::Spectrum2) {
@@ -665,7 +665,7 @@ void Renderer::HandleInput(WPARAM key) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::min(20.0f, m_decayRate + 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
-            m_cv2Speed = std::min(0.2f, m_cv2Speed + 0.001f);  // Maximum 0.2 lines/sec
+            m_cv2Speed = std::min(200.0f, m_cv2Speed + 5.0f);  // Maximum 200% (very fast, 0.5s to horizon)
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::min(50, m_lfScrollSpeed + 1);  // Maximum 50 pixels
         } else if (m_currentVis == Visualization::Spectrum2) {
@@ -878,24 +878,33 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
     const float HORIZON_Y = 0.2f;  // 40% from top (NDC: 1.0 is top, -1.0 is bottom, so 0.2 is 40% down)
     const int NUM_MOUNTAIN_POINTS = 112;  // Points per side of mountain (higher resolution)
     const int NUM_DEPTH_LINES = 60;      // Number of lines going toward horizon (more lines for smoother scrolling)
-    const float MAX_HEIGHT = 0.6f;       // Maximum mountain height (reduced to prevent stretching)
+    const float MAX_HEIGHT = 0.9f;       // Maximum mountain height (increased 50% for more dramatic peaks)
     const int NUM_FREQ_BINS = 224;       // Number of frequency bins to use (256 - 32 high-end bins)
     
-    // CRITICAL: Capture current spectrum into our own frozen history buffer
-    // This ensures mountain lines never update once created
-    for (int i = 0; i < 256; i++) {
-        m_cv2MountainHistory[m_cv2HistoryWriteIndex][i] = m_useNormalized ? data.SpectrumNormalized[i] : data.Spectrum[i];
+    // CRITICAL: Capture spectrum peaks into our frozen history buffer at controlled rate
+    // Draw 30 mountain lines per second, using highest values since last draw
+    m_cv2TimeSinceLastLine += deltaTime;
+    const float LINE_DRAW_INTERVAL = 0.0333333f;  // ~0.033 seconds = 30 lines per second
+    
+    if (m_cv2TimeSinceLastLine >= LINE_DRAW_INTERVAL) {
+        m_cv2TimeSinceLastLine -= LINE_DRAW_INTERVAL;
+        
+        // Use SpectrumHighestSample which already tracks peak values over last 6 frames
+        for (int i = 0; i < 256; i++) {
+            m_cv2MountainHistory[m_cv2HistoryWriteIndex][i] = data.SpectrumHighestSample[i];
+        }
+        m_cv2HistoryWriteIndex = (m_cv2HistoryWriteIndex + 1) % 60;
     }
-    m_cv2HistoryWriteIndex = (m_cv2HistoryWriteIndex + 1) % 60;
     
     // Update timers
     m_cv2Time += deltaTime;
     if (m_cv2Time > 600.0f) m_cv2Time -= 600.0f;  // 10 minute cycle
     
     // Speed: controls how fast lines move toward horizon
-    // Higher values = more lines drawn per second
-    float linesPerSecond = m_cv2Speed;  // speed directly controls lines per second
-    m_cv2GridOffset += linesPerSecond * deltaTime;
+    // Speed is percentage (50% = 2 seconds to horizon, 100% = 1 second)
+    // Convert percentage to scroll speed: distance/second = speed / 100
+    float scrollSpeed = m_cv2Speed / 100.0f;  // 50% -> 0.5 units/sec -> 2 seconds to horizon
+    m_cv2GridOffset += scrollSpeed * deltaTime;
     if (m_cv2GridOffset > 1.0f) m_cv2GridOffset -= 1.0f;
     
     // Day/Night colors based on V key toggle
@@ -1115,7 +1124,7 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
         int histIdx = (m_cv2HistoryWriteIndex - 1 - histOffset + 60) % 60;
         
         // Perspective: closer rows are spread wider, distant rows converge
-        float perspectiveScale = 1.0f - z * 0.9f;  // 1.0 at camera, 0.1 at horizon
+        float perspectiveScale = 1.0f - z * 0.7f;  // 1.0 at camera, 0.3 at horizon (less aggressive pinch)
         
         // Calculate brightness fade: 100% at viewer (z=0), 33% at horizon (z=1)
         float brightness = 1.0f - z * 0.67f;
@@ -1210,20 +1219,20 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
             xOffset *= roadWidth;
             
             float xBottom = xOffset;
-            float xTop = xOffset * 0.1f;  // Converge at horizon
+            float xTop = xOffset * 0.3f;  // Converge at horizon (matches mountain perspective: 1.0 - 1.0 * 0.7 = 0.3)
             
             AddLine(xBottom, -1.0f, xTop, HORIZON_Y, colorGrid, 0.002f);
         }
         
         // Draw horizontal lines (scrolling toward horizon)
-        int numHorizLines = NUM_DEPTH_LINES;  // Match mountain line count for synchronized movement
+        int numHorizLines = NUM_DEPTH_LINES / 4;  // 25% of mountain lines (15 lines instead of 60)
         for (int i = 0; i < numHorizLines; i++) {
-            float z = (float)i / numHorizLines;
+            float z = (float)i / (float)numHorizLines;
             z += m_cv2GridOffset;
             if (z >= 1.0f) z -= 1.0f;
             
             float y = -1.0f + z * (HORIZON_Y + 1.0f);
-            float perspScale = 1.0f - z * 0.9f;
+            float perspScale = 1.0f - z * 0.7f;  // Match mountain perspective (0.3 at horizon)
             float xLeft = -roadWidth * perspScale;
             float xRight = roadWidth * perspScale;
             
