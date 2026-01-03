@@ -202,8 +202,6 @@ void AudioEngine::PerformFFT(std::vector<float>& samples) {
     if (maxVal > currentPeak) {
         // Expansion (Immediate)
         currentPeak = maxVal;
-        // Cap Scale at 1.5 (which means minimum peak of 1.0/1.5 = 0.667)
-        if (currentPeak < 0.667f) currentPeak = 0.667f;
     } else {
         // Contraction (Gradual)
         // User wants it to "creep up" (Peak creep down) over 5 seconds.
@@ -212,8 +210,8 @@ void AudioEngine::PerformFFT(std::vector<float>& samples) {
         currentPeak -= (currentPeak * decay);
     }
 
-    // Safety clamp
-    if (currentPeak < 0.0001f) currentPeak = 0.0001f;
+    // Safety clamp - Cap Scale at 1.5 (minimum peak of 0.667)
+    if (currentPeak < 0.667f) currentPeak = 0.667f;
 
     m_data.Scale = 1.0f / currentPeak;
 

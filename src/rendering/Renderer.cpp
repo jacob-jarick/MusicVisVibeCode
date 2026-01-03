@@ -415,7 +415,6 @@ void Renderer::RenderOSD() {
                       "H: Toggle Help\n"
                       "I: Toggle Info\n"
                       "C: Toggle Clock\n"
-                      "N: Toggle Normalized\n"
                       "F: Toggle Fullscreen\n"
                       "B: Random Background\n"
                       "[/]: Prev/Next Background\n"
@@ -438,7 +437,6 @@ void Renderer::RenderOSD() {
                       "H: Toggle Help\n"
                       "I: Toggle Info\n"
                       "C: Toggle Clock\n"
-                      "N: Toggle Normalized\n"
                       "F: Toggle Fullscreen\n"
                       "B: Random Background\n"
                       "[/]: Prev/Next Background\n"
@@ -470,8 +468,7 @@ void Renderer::RenderOSD() {
             }
         }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
-        ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No") << "\n";
-        ss << "Normalized: " << (m_useNormalized ? "Yes" : "No");
+        ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No");
         osdText = ss.str();
     } else if (m_showClock) {
         rightAlign = true;
@@ -678,8 +675,6 @@ void Renderer::HandleInput(WPARAM key) {
                 m_lfMirrorMode = LFMirrorMode::None;
             }
         }
-    } else if (key == 'N') {
-        m_useNormalized = !m_useNormalized;
     } else if (key == 'F') {
         m_isFullscreen = !m_isFullscreen;
         m_swapChain->SetFullscreenState(m_isFullscreen, NULL);
