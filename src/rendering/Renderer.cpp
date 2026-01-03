@@ -122,6 +122,24 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height) {
 
     D3D11_VIEWPORT viewport = { 0, 0, (float)width, (float)height, 0.0f, 1.0f };
     m_context->RSSetViewports(1, &viewport);
+    
+    // Create Rasterizer State (Disable Culling)
+    D3D11_RASTERIZER_DESC rasterDesc = {};
+    rasterDesc.AntialiasedLineEnable = FALSE;
+    rasterDesc.CullMode = D3D11_CULL_NONE;
+    rasterDesc.DepthBias = 0;
+    rasterDesc.DepthBiasClamp = 0.0f;
+    rasterDesc.DepthClipEnable = TRUE;
+    rasterDesc.FillMode = D3D11_FILL_SOLID;
+    rasterDesc.FrontCounterClockwise = FALSE;
+    rasterDesc.MultisampleEnable = FALSE;
+    rasterDesc.ScissorEnable = FALSE;
+    rasterDesc.SlopeScaledDepthBias = 0.0f;
+
+    ID3D11RasterizerState* pRasterState = nullptr;
+    m_device->CreateRasterizerState(&rasterDesc, &pRasterState);
+    m_context->RSSetState(pRasterState);
+    if(pRasterState) pRasterState->Release();
 
     // Compile Shaders
     ID3DBlob* vsBlob = nullptr;
@@ -194,6 +212,10 @@ void Renderer::Run() {
 }
 
 void Renderer::Render() {
+    LARGE_INTEGER currentTime;
+    QueryPerformanceCounter(&currentTime);
+    float deltaTime = (float)(currentTime.QuadPart - m_lastTime.QuadPart) / m_frequency.QuadPart;
+    m_lastTime = currentTime;
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
     m_context->ClearRenderTargetView(m_renderTargetView, clearColor);
 
@@ -202,7 +224,7 @@ void Renderer::Render() {
     m_context->PSSetSamplers(0, 1, &m_samplerState);
 
     // Draw Background
-    if (m_showBackground && m_backgroundSRV) {
+    if (m_showBackground && m_backgroundSRV && m_currentVis == Visualization::Spectrum) {
         float screenAR = (float)m_width / (float)m_height;
         float imageAR = m_bgAspectRatio;
         
@@ -252,7 +274,21 @@ void Renderer::Render() {
         m_context->PSSetShaderResources(0, 1, &nullSRV);
     }
 
-    UpdateSpectrumVis();
+    // FPS Calculation
+    m_frameCount++;
+    m_timeElapsed += deltaTime;
+    if (m_timeElapsed >= 1.0f) {
+        m_fps = (float)m_frameCount / m_timeElapsed;
+        m_frameCount = 0;
+        m_timeElapsed = 0.0f;
+    }
+
+    if (m_currentVis == Visualization::Spectrum) {
+        UpdateSpectrumVis(deltaTime);
+    } else if (m_currentVis == Visualization::CyberValley2) {
+        UpdateCyberValley2Vis(deltaTime);
+    }
+    
     RenderOSD();
 
     m_swapChain->Present(1, 0);
@@ -261,8 +297,8 @@ void Renderer::Render() {
 void Renderer::CreateTextResources() {
     // Create a texture for text rendering (GDI compatible)
     D3D11_TEXTURE2D_DESC desc = {0};
-    desc.Width = 512;
-    desc.Height = 256;
+    desc.Width = 1024;
+    desc.Height = 1024;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
     desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // GDI compatible format
@@ -286,17 +322,17 @@ void Renderer::UpdateTextTexture(const std::string& text, bool rightAlign) {
         pSurface->GetDC(FALSE, &hdc);
 
         // 1. Clear background to BLACK (Transparent in our shader logic)
-        RECT fullRect = {0, 0, 512, 256};
+        RECT fullRect = {0, 0, 1024, 1024};
         HBRUSH hBlackBrush = CreateSolidBrush(RGB(0, 0, 0));
         FillRect(hdc, &fullRect, hBlackBrush);
         DeleteObject(hBlackBrush);
 
         // 2. Setup Font
-        HFONT hFont = CreateFont(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial");
+        HFONT hFont = CreateFont(56, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial");
         SelectObject(hdc, hFont);
 
         // 3. Measure Text
-        RECT textRect = {0, 0, 512, 256};
+        RECT textRect = {0, 0, 1024, 1024};
         DrawText(hdc, text.c_str(), -1, &textRect, DT_CALCRECT | DT_WORDBREAK);
         
         // 4. Calculate Box Size (20% wider and taller)
@@ -308,7 +344,7 @@ void Renderer::UpdateTextTexture(const std::string& text, bool rightAlign) {
         // 5. Position Box
         RECT boxRect;
         if (rightAlign) {
-            boxRect.right = 512 - 10; // 10px padding from edge
+            boxRect.right = 1024 - 10; // 10px padding from edge
             boxRect.left = boxRect.right - boxWidth;
         } else {
             boxRect.left = 10;
@@ -350,22 +386,38 @@ void Renderer::RenderOSD() {
     bool rightAlign = false;
 
     if (m_showHelp) {
-        osdText = "HELP MENU:\n\n"
-                  "H: Toggle Help\n"
-                  "I: Toggle Info\n"
-                  "C: Toggle Clock\n"
-                  "N: Toggle Normalized\n"
-                  "F: Toggle Fullscreen\n"
-                  "B: Random Background\n"
-                  "[/]: Prev/Next Background\n"
-                  "-/=: Adjust Decay\n"
-                  "ESC: Quit";
+        if (m_currentVis == Visualization::Spectrum) {
+            osdText = "HELP (SPECTRUM):\n\n"
+                      "H: Toggle Help\n"
+                      "I: Toggle Info\n"
+                      "C: Toggle Clock\n"
+                      "N: Toggle Normalized\n"
+                      "F: Toggle Fullscreen\n"
+                      "B: Random Background\n"
+                      "[/]: Prev/Next Background\n"
+                      "-/=: Adjust Decay\n"
+                      "Left/Right: Change Vis\n"
+                      "ESC: Quit";
+        } else if (m_currentVis == Visualization::CyberValley2) {
+            osdText = "HELP (CYBER VALLEY 2):\n\n"
+                      "H: Toggle Help\n"
+                      "I: Toggle Info\n"
+                      "C: Toggle Clock\n"
+                      "F: Toggle Fullscreen\n"
+                      "Left/Right: Change Vis\n"
+                      "V: Toggle Sun/Moon\n"
+                      "G: Toggle Grid\n"
+                      "-/=: Adjust Speed\n"
+                      "ESC: Quit";
+        }
     } else if (m_showInfo) {
         std::stringstream ss;
         ss << std::fixed << std::setprecision(2);
         ss << "INFO OVERLAY:\n\n";
         ss << "FPS: " << m_fps << "\n";
-        ss << "Decay Rate: " << m_decayRate << "\n";
+        if (m_currentVis == Visualization::Spectrum) {
+            ss << "Decay Rate: " << m_decayRate << "\n";
+        }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
         ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No") << "\n";
         ss << "Normalized: " << (m_useNormalized ? "Yes" : "No");
@@ -396,8 +448,8 @@ void Renderer::RenderOSD() {
 
     // Render Quad with Text Texture
     std::vector<Vertex> vertices;
-    float w = 0.6f; // Width relative to screen
-    float h = 0.6f; // Height relative to screen
+    float w = 0.8f; // Width relative to screen
+    float h = 0.8f; // Height relative to screen
     float padding = 0.05f;
     float x = 1.0f - w - padding; // Top Right
     float y = 1.0f - padding;
@@ -521,18 +573,37 @@ void Renderer::LoadRandomBackground() {
 
 void Renderer::HandleInput(WPARAM key) {
     if (key == VK_OEM_MINUS || key == VK_SUBTRACT) {
-        m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
+        if (m_currentVis == Visualization::Spectrum) {
+            m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
+        } else if (m_currentVis == Visualization::CyberValley2) {
+            m_cv2Speed = std::max(0.1f, m_cv2Speed - 0.1f);
+        }
     } else if (key == VK_OEM_PLUS || key == VK_ADD) {
-        m_decayRate = std::min(20.0f, m_decayRate + 0.5f);
+        if (m_currentVis == Visualization::Spectrum) {
+            m_decayRate = std::min(20.0f, m_decayRate + 0.5f);
+        } else if (m_currentVis == Visualization::CyberValley2) {
+            m_cv2Speed = std::min(2.0f, m_cv2Speed + 0.1f);
+        }
     } else if (key == 'H') {
         m_showHelp = !m_showHelp;
-        if (m_showHelp) { m_showInfo = false; m_showClock = false; }
+        if (m_showHelp) {
+            m_showInfo = false;
+            m_showClock = false;
+        }
     } else if (key == 'I') {
         m_showInfo = !m_showInfo;
         if (m_showInfo) { m_showHelp = false; m_showClock = false; }
     } else if (key == 'C') {
         m_showClock = !m_showClock;
         if (m_showClock) { m_showHelp = false; m_showInfo = false; }
+    } else if (key == 'V') {
+        if (m_currentVis == Visualization::CyberValley2) {
+            m_cv2SunMode = !m_cv2SunMode;
+        }
+    } else if (key == 'G') {
+        if (m_currentVis == Visualization::CyberValley2) {
+            m_cv2ShowGrid = !m_cv2ShowGrid;
+        }
     } else if (key == 'N') {
         m_useNormalized = !m_useNormalized;
     } else if (key == 'F') {
@@ -558,10 +629,21 @@ void Renderer::HandleInput(WPARAM key) {
             if (m_currentBgIndex >= m_backgroundFiles.size()) m_currentBgIndex = 0;
             LoadBackground(m_currentBgIndex);
         }
-    } else if (key == VK_LEFT || key == VK_RIGHT) {
-        // TODO: Switch visualization (Next/Prev)
+    } else if (key == VK_LEFT) {
+        int vis = (int)m_currentVis - 1;
+        if (vis < 0) vis = 1; // Wrap to last (2 visualizations: 0, 1)
+        m_currentVis = (Visualization)vis;
+    } else if (key == VK_RIGHT) {
+        int vis = (int)m_currentVis + 1;
+        if (vis > 1) vis = 0; // Wrap to first
+        m_currentVis = (Visualization)vis;
+    } else if (key == '1') {
+        m_currentVis = Visualization::Spectrum;
+    } else if (key == '2') {
+        m_currentVis = Visualization::CyberValley2;
     } else if (key == 'R') {
-        // TODO: Random visualization
+        // Random visualization
+        m_currentVis = (Visualization)(rand() % 2);
     } else if (key >= '0' && key <= '9') {
         // TODO: Switch to visualization index
     } else if (key == VK_ESCAPE) {
@@ -569,17 +651,17 @@ void Renderer::HandleInput(WPARAM key) {
     }
 }
 
-void Renderer::UpdateSpectrumVis() {
+void Renderer::UpdateSpectrumVis(float deltaTime) {
     const AudioData& data = m_audioEngine.GetData();
     
     LARGE_INTEGER currentTime;
     QueryPerformanceCounter(&currentTime);
-    float deltaTime = (float)(currentTime.QuadPart - m_lastTime.QuadPart) / m_frequency.QuadPart;
-    m_lastTime = currentTime;
+//     float deltaTime = (float)(currentTime.QuadPart - m_lastTime.QuadPart) / m_frequency.QuadPart;
+//     m_lastTime = currentTime;
 
     // FPS Calculation
-    m_frameCount++;
-    m_timeElapsed += deltaTime;
+//     m_frameCount++;
+//     m_timeElapsed += deltaTime;
     if (m_timeElapsed >= 1.0f) {
         m_fps = (float)m_frameCount / m_timeElapsed;
         m_frameCount = 0;
@@ -674,3 +756,207 @@ void Renderer::UpdateSpectrumVis() {
 
     m_context->Draw(vertices.size(), 0);
 }
+
+void Renderer::UpdateCyberValley2Vis(float deltaTime) {
+    const AudioData& data = m_audioEngine.GetData();
+    std::vector<Vertex> vertices;
+    
+    // Constants
+    const float HORIZON_Y = 0.2f;  // 40% from top (NDC: 1.0 is top, -1.0 is bottom, so 0.2 is 40% down)
+    const int NUM_MOUNTAIN_POINTS = 64;  // Points per side of mountain
+    const int NUM_DEPTH_LINES = 40;      // Number of lines going toward horizon
+    const float MAX_HEIGHT = 0.6f;       // Maximum mountain height
+    
+    // Update timers
+    m_cv2Time += deltaTime;
+    if (m_cv2Time > 600.0f) m_cv2Time -= 600.0f;  // 10 minute cycle
+    
+    m_cv2GridOffset += deltaTime * m_cv2Speed;
+    if (m_cv2GridOffset > 1.0f) m_cv2GridOffset -= 1.0f;
+    
+    // Day/Night colors based on V key toggle
+    XMFLOAT4 colorSkyTop, colorSkyBot, colorGround, colorGrid, colorSun;
+    if (m_cv2SunMode) {
+        // Day Palette - Sunset Orange / Neon Pink
+        colorSkyTop = {1.0f, 0.55f, 0.0f, 1.0f};    // Sunset Orange #FF8C00
+        colorSkyBot = {1.0f, 0.0f, 0.5f, 1.0f};     // Neon Pink #FF0080
+        colorGround = {0.1f, 0.0f, 0.1f, 1.0f};     // Dark purple ground
+        colorGrid = {1.0f, 0.0f, 0.8f, 1.0f};       // Magenta #FF00CC
+        colorSun = {1.0f, 1.0f, 0.0f, 1.0f};        // Yellow Sun
+    } else {
+        // Night Palette - Dark Indigo / Cyber Purple
+        colorSkyTop = {0.0f, 0.0f, 0.2f, 1.0f};     // Dark Indigo #000033
+        colorSkyBot = {0.5f, 0.0f, 0.8f, 1.0f};     // Cyber Purple #8000CC
+        colorGround = {0.0f, 0.05f, 0.1f, 1.0f};    // Dark blue ground
+        colorGrid = {0.0f, 1.0f, 1.0f, 1.0f};       // Cyan #00FFFF
+        colorSun = {0.8f, 0.8f, 1.0f, 1.0f};        // Pale Moon
+    }
+    
+    // Helper to add a quad (two triangles)
+    auto AddQuad = [&](XMFLOAT3 tl, XMFLOAT3 tr, XMFLOAT3 bl, XMFLOAT3 br, XMFLOAT4 colTop, XMFLOAT4 colBot) {
+        vertices.push_back({ tl, colTop, {-1.0f, -1.0f} });
+        vertices.push_back({ tr, colTop, {-1.0f, -1.0f} });
+        vertices.push_back({ bl, colBot, {-1.0f, -1.0f} });
+        vertices.push_back({ tr, colTop, {-1.0f, -1.0f} });
+        vertices.push_back({ br, colBot, {-1.0f, -1.0f} });
+        vertices.push_back({ bl, colBot, {-1.0f, -1.0f} });
+    };
+    
+    // Helper to add a line (thin quad)
+    auto AddLine = [&](float x1, float y1, float x2, float y2, XMFLOAT4 col, float thickness = 0.003f) {
+        // Calculate perpendicular offset for line thickness
+        float dx = x2 - x1;
+        float dy = y2 - y1;
+        float len = sqrtf(dx*dx + dy*dy);
+        if (len < 0.0001f) return;
+        float nx = -dy / len * thickness;
+        float ny = dx / len * thickness;
+        
+        vertices.push_back({ {x1 - nx, y1 - ny, 0.5f}, col, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 + nx, y1 + ny, 0.5f}, col, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 - nx, y2 - ny, 0.5f}, col, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 + nx, y1 + ny, 0.5f}, col, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 + nx, y2 + ny, 0.5f}, col, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 - nx, y2 - ny, 0.5f}, col, {-1.0f, -1.0f} });
+    };
+    
+    // 1. DRAW SKY GRADIENT (from top to horizon)
+    AddQuad(
+        {-1.0f, 1.0f, 0.99f}, {1.0f, 1.0f, 0.99f},      // Top corners
+        {-1.0f, HORIZON_Y, 0.99f}, {1.0f, HORIZON_Y, 0.99f},  // Horizon corners
+        colorSkyTop, colorSkyBot
+    );
+    
+    // 2. DRAW GROUND (from horizon to bottom) - solid dark color
+    AddQuad(
+        {-1.0f, HORIZON_Y, 0.98f}, {1.0f, HORIZON_Y, 0.98f},
+        {-1.0f, -1.0f, 0.98f}, {1.0f, -1.0f, 0.98f},
+        colorGround, colorGround
+    );
+    
+    // 3. DRAW SUN/MOON (static, centered above horizon)
+    float sunX = 0.0f;
+    float sunY = HORIZON_Y + 0.35f;  // Above horizon
+    float sunRadius = 0.15f;
+    
+    // Draw circle as triangle fan
+    int sunSegments = 32;
+    for (int i = 0; i < sunSegments; i++) {
+        float theta1 = (float)i / sunSegments * 6.28318f;
+        float theta2 = (float)(i + 1) / sunSegments * 6.28318f;
+        
+        vertices.push_back({ {sunX, sunY, 0.9f}, colorSun, {-1.0f, -1.0f} });
+        vertices.push_back({ {sunX + cosf(theta1) * sunRadius, sunY + sinf(theta1) * sunRadius, 0.9f}, colorSun, {-1.0f, -1.0f} });
+        vertices.push_back({ {sunX + cosf(theta2) * sunRadius, sunY + sinf(theta2) * sunRadius, 0.9f}, colorSun, {-1.0f, -1.0f} });
+    }
+    
+    // 4. DRAW MOUNTAINS (audio-reactive valley)
+    // For each depth row, we draw a spectrum line that forms the mountain profile
+    // Lines closer to camera are at bottom, lines at horizon are at top
+    
+    for (int row = 0; row < NUM_DEPTH_LINES; row++) {
+        // Calculate depth factor (0 = at camera/bottom, 1 = at horizon)
+        float rawZ = (float)row / NUM_DEPTH_LINES;
+        float z = rawZ - m_cv2GridOffset / NUM_DEPTH_LINES;
+        if (z < 0) z += 1.0f;
+        
+        // Perspective: closer rows are spread wider, distant rows converge
+        float perspectiveScale = 1.0f - z * 0.9f;  // 1.0 at camera, 0.1 at horizon
+        
+        // Y position: interpolate from bottom (-1) to horizon (0.2)
+        float baseY = -1.0f + z * (HORIZON_Y + 1.0f);
+        
+        // Get audio data for this row (use history for depth effect)
+        // Closer rows use more recent audio, distant rows use older audio
+        int histOffset = (int)(z * 59);  // Map z to history index (0-59)
+        int histIdx = (data.historyIndex - histOffset + 60) % 60;
+        
+        // Generate mountain points for this row
+        float prevX = -1.0f;
+        float prevY = baseY;
+        
+        for (int i = 0; i <= NUM_MOUNTAIN_POINTS; i++) {
+            // X position in NDC (-1 to 1)
+            float xNorm = (float)i / NUM_MOUNTAIN_POINTS * 2.0f - 1.0f;
+            
+            // Map X to spectrum bin (mirrored V shape)
+            // Center (x=0) -> high frequencies (bin 255, low amplitude)
+            // Edges (x=±1) -> low frequencies (bin 0, high amplitude = bass)
+            float absX = fabsf(xNorm);
+            int bin = (int)((1.0f - absX) * 127);  // Use first 128 bins, mirrored
+            if (bin < 0) bin = 0;
+            if (bin > 127) bin = 127;
+            
+            // Get spectrum value from history
+            float specVal = m_useNormalized ? data.HistoryNormalized[histIdx][bin] : data.History[histIdx][bin];
+            
+            // Calculate height: base slope + audio amplitude
+            float baseSlope = absX * 0.3f;  // V-shape base (edges higher than center)
+            float audioHeight = specVal * MAX_HEIGHT;
+            float totalHeight = (baseSlope + audioHeight) * perspectiveScale;
+            
+            // Final screen position
+            float screenX = xNorm * perspectiveScale;
+            float screenY = baseY + totalHeight;
+            
+            // Draw line segment from previous point
+            if (i > 0) {
+                AddLine(prevX, prevY, screenX, screenY, colorGrid, 0.002f * perspectiveScale + 0.001f);
+            }
+            
+            prevX = screenX;
+            prevY = screenY;
+        }
+    }
+    
+    // 5. DRAW ROAD GRID (center path)
+    if (m_cv2ShowGrid) {
+        float roadWidth = 0.15f;  // Half-width of road at camera
+        
+        // Draw vertical lines (converging to center at horizon)
+        int numRoadLines = 5;
+        for (int i = 0; i < numRoadLines; i++) {
+            float xOffset = (float)i / (numRoadLines - 1) * 2.0f - 1.0f;  // -1 to 1
+            xOffset *= roadWidth;
+            
+            float xBottom = xOffset;
+            float xTop = xOffset * 0.1f;  // Converge at horizon
+            
+            AddLine(xBottom, -1.0f, xTop, HORIZON_Y, colorGrid, 0.002f);
+        }
+        
+        // Draw horizontal lines (scrolling toward horizon)
+        int numHorizLines = 20;
+        for (int i = 0; i < numHorizLines; i++) {
+            float z = (float)i / numHorizLines;
+            z -= m_cv2GridOffset;
+            if (z < 0) z += 1.0f;
+            
+            float y = -1.0f + z * (HORIZON_Y + 1.0f);
+            float perspScale = 1.0f - z * 0.9f;
+            float xLeft = -roadWidth * perspScale;
+            float xRight = roadWidth * perspScale;
+            
+            AddLine(xLeft, y, xRight, y, colorGrid, 0.002f * perspScale + 0.0005f);
+        }
+    }
+    
+    // Submit all vertices
+    if (!vertices.empty()) {
+        D3D11_MAPPED_SUBRESOURCE ms;
+        m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+        memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+        m_context->Unmap(m_vertexBuffer, 0);
+        
+        UINT stride = sizeof(Vertex);
+        UINT offset = 0;
+        m_context->IASetVertexBuffers(0, 1, &m_vertexBuffer, &stride, &offset);
+        m_context->IASetInputLayout(m_inputLayout);
+        m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        m_context->VSSetShader(m_vertexShader, NULL, 0);
+        m_context->PSSetShader(m_pixelShader, NULL, 0);
+        
+        m_context->Draw((UINT)vertices.size(), 0);
+    }
+}
+

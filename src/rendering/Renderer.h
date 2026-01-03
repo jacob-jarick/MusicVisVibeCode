@@ -20,7 +20,8 @@ public:
 private:
     static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
     void Render();
-    void UpdateSpectrumVis();
+    void UpdateSpectrumVis(float deltaTime);
+    void UpdateCyberValley2Vis(float deltaTime);
 
     AudioEngine& m_audioEngine;
     HWND m_hwnd;
@@ -44,8 +45,20 @@ private:
     };
 
     // Visualization State
+    enum class Visualization { Spectrum, CyberValley2 };
+    Visualization m_currentVis = Visualization::Spectrum;
+
+    // Spectrum Vis State
     float m_peakLevels[16] = {0};
-    float m_decayRate = 5.0f; // Segments per second (Default: 1 segment per 0.2s)
+    float m_decayRate = 5.0f; 
+
+    // CyberValley2 Vis State
+    float m_cv2Time = 0.0f;           // Day/night cycle timer (0-600 seconds)
+    float m_cv2Speed = 0.5f;          // Movement speed
+    float m_cv2GridOffset = 0.0f;     // Grid scroll position (0-1)
+    bool m_cv2SunMode = true;         // true = Day, false = Night
+    bool m_cv2ShowGrid = true;        // Grid visibility toggle
+
     LARGE_INTEGER m_lastTime;
     LARGE_INTEGER m_frequency;
     float m_fps = 0.0f;
