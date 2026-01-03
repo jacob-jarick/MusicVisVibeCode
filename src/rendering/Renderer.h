@@ -56,10 +56,12 @@ private:
 
     // CyberValley2 Vis State
     float m_cv2Time = 0.0f;           // Day/night cycle timer (0-600 seconds)
-    float m_cv2Speed = 0.5f;          // Movement speed (lines per second, min 0.25, max 2.5)
+    float m_cv2Speed = 0.01f;         // Movement speed (lines per second, min 0.001, max 0.2)
     float m_cv2GridOffset = 0.0f;     // Grid scroll position (0-1)
     bool m_cv2SunMode = true;         // true = Day, false = Night
     bool m_cv2ShowGrid = true;        // Grid visibility toggle
+    float m_cv2MountainHistory[60][256] = {{0}};  // Frozen snapshots of spectrum for mountains
+    int m_cv2HistoryWriteIndex = 0;   // Current write position in history buffer
 
     // LineFader Vis State
     int m_lfScrollSpeed = 5;          // Scroll speed in pixels per frame (1-50)

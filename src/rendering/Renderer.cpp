@@ -655,7 +655,7 @@ void Renderer::HandleInput(WPARAM key) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
-            m_cv2Speed = std::max(0.25f, m_cv2Speed - 0.25f);  // Minimum 0.25 lines/sec (4x slower)
+            m_cv2Speed = std::max(0.001f, m_cv2Speed - 0.001f);  // Minimum 0.001 lines/sec (very slow)
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::max(1, m_lfScrollSpeed - 1);  // Minimum 1 pixel
         } else if (m_currentVis == Visualization::Spectrum2) {
@@ -665,7 +665,7 @@ void Renderer::HandleInput(WPARAM key) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::min(20.0f, m_decayRate + 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
-            m_cv2Speed = std::min(2.5f, m_cv2Speed + 0.25f);  // Maximum 2.5 lines/sec
+            m_cv2Speed = std::min(0.2f, m_cv2Speed + 0.001f);  // Maximum 0.2 lines/sec
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::min(50, m_lfScrollSpeed + 1);  // Maximum 50 pixels
         } else if (m_currentVis == Visualization::Spectrum2) {
@@ -876,10 +876,17 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
     
     // Constants
     const float HORIZON_Y = 0.2f;  // 40% from top (NDC: 1.0 is top, -1.0 is bottom, so 0.2 is 40% down)
-    const int NUM_MOUNTAIN_POINTS = 32;  // Points per side of mountain (reduced for performance)
-    const int NUM_DEPTH_LINES = 30;      // Number of lines going toward horizon (reduced for performance)
-    const float MAX_HEIGHT = 1.2f;       // Maximum mountain height (doubled for more dramatic effect)
-    const int NUM_FREQ_BINS = 32;        // Number of frequency bins to use (not grouped, individual)
+    const int NUM_MOUNTAIN_POINTS = 112;  // Points per side of mountain (higher resolution)
+    const int NUM_DEPTH_LINES = 60;      // Number of lines going toward horizon (more lines for smoother scrolling)
+    const float MAX_HEIGHT = 0.6f;       // Maximum mountain height (reduced to prevent stretching)
+    const int NUM_FREQ_BINS = 224;       // Number of frequency bins to use (256 - 32 high-end bins)
+    
+    // CRITICAL: Capture current spectrum into our own frozen history buffer
+    // This ensures mountain lines never update once created
+    for (int i = 0; i < 256; i++) {
+        m_cv2MountainHistory[m_cv2HistoryWriteIndex][i] = m_useNormalized ? data.SpectrumNormalized[i] : data.Spectrum[i];
+    }
+    m_cv2HistoryWriteIndex = (m_cv2HistoryWriteIndex + 1) % 60;
     
     // Update timers
     m_cv2Time += deltaTime;
@@ -1099,15 +1106,20 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
         float z = rawZ + m_cv2GridOffset;
         if (z >= 1.0f) z -= 1.0f;
         
-        // Get audio data based on ROW NUMBER, not scrolled position
-        // This makes each row always look at the same point in history
-        // Row 0 = current audio, Row 1 = 1 frame ago, Row 2 = 2 frames ago, etc.
-        // Lines FREEZE their audio snapshot and only zoom toward horizon
-        int histOffset = row;  // Direct row-to-history mapping
-        int histIdx = (data.historyIndex - histOffset + 60) % 60;
+        // FREEZE LOGIC: History lookup based on Z position, not row number
+        // z=0 (bottom) shows most recent spectrum, z=1.0 (horizon) shows oldest
+        // This ensures newest data always appears at bottom regardless of scrolling
+        int histOffset = (int)(z * 59.0f);  // Map z (0-1) to history depth (0-59)
+        if (histOffset < 0) histOffset = 0;
+        if (histOffset >= 60) histOffset = 59;
+        int histIdx = (m_cv2HistoryWriteIndex - 1 - histOffset + 60) % 60;
         
         // Perspective: closer rows are spread wider, distant rows converge
         float perspectiveScale = 1.0f - z * 0.9f;  // 1.0 at camera, 0.1 at horizon
+        
+        // Calculate brightness fade: 100% at viewer (z=0), 33% at horizon (z=1)
+        float brightness = 1.0f - z * 0.67f;
+        XMFLOAT4 fadedColor = {colorGrid.x * brightness, colorGrid.y * brightness, colorGrid.z * brightness, colorGrid.w};
         
         // Y position: interpolate from bottom (-1) to horizon (0.2)
         float baseY = -1.0f + z * (HORIZON_Y + 1.0f);
@@ -1127,14 +1139,14 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
             float t = (float)i / (NUM_MOUNTAIN_POINTS / 2);
             float xScreen = -1.0f * perspectiveScale * extendFactor + t * (1.0f * perspectiveScale * extendFactor - roadEdge);
             
-            // Map to frequency bin: use 32 DIRECT samples from spectrum (not grouped)
-            // Left side: direct spectrum bins 0-31 (bass at outer edge)
-            int bin = (int)(t * 31.0f);  // Direct mapping to first 32 bins
+            // Map to frequency bin: bass at left edge, highs toward center
+            // Left side: bins 0-111 (first half of 224 usable bins)
+            int bin = (int)(t * 111.0f);
             if (bin < 0) bin = 0;
-            if (bin > 31) bin = 31;
+            if (bin > 111) bin = 111;
             
-            // Get spectrum value from history
-            float specVal = m_useNormalized ? data.HistoryNormalized[histIdx][bin] : data.History[histIdx][bin];
+            // Get spectrum value from our frozen history buffer
+            float specVal = m_cv2MountainHistory[histIdx][bin];
             
             // Calculate height (flat line, only audio modulation)
             float audioHeight = specVal * MAX_HEIGHT;
@@ -1145,7 +1157,7 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
             
             // Draw line segment from previous point
             if (i > 0) {
-                AddLine(prevX, prevY, xScreen, yScreen, colorGrid, 0.002f * perspectiveScale + 0.001f);
+                AddLine(prevX, prevY, xScreen, yScreen, fadedColor, 0.002f * perspectiveScale + 0.001f);
             }
             
             prevX = xScreen;
@@ -1161,14 +1173,14 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
             float t = (float)i / (NUM_MOUNTAIN_POINTS / 2);
             float xScreen = roadEdge + t * (1.0f * perspectiveScale * extendFactor - roadEdge);
             
-            // Map to frequency bin: use 32 DIRECT samples from spectrum (mirrored)
-            // Right side: direct spectrum bins 31-0 (mirrored, bass at outer edge)
-            int bin = 31 - (int)(t * 31.0f);  // Direct mapping, mirrored
+            // Map to frequency bin: mirror left side (highs at center, bass at right edge)
+            // Right side: bins 111-0 (mirrored, creates valley shape)
+            int bin = 111 - (int)(t * 111.0f);
             if (bin < 0) bin = 0;
-            if (bin > 31) bin = 31;
+            if (bin > 111) bin = 111;
             
-            // Get spectrum value from history
-            float specVal = m_useNormalized ? data.HistoryNormalized[histIdx][bin] : data.History[histIdx][bin];
+            // Get spectrum value from our frozen history buffer
+            float specVal = m_cv2MountainHistory[histIdx][bin];
             
             // Calculate height (flat line, only audio modulation)
             float audioHeight = specVal * MAX_HEIGHT;
@@ -1179,7 +1191,7 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
             
             // Draw line segment from previous point
             if (i > 0) {
-                AddLine(prevX, prevY, xScreen, yScreen, colorGrid, 0.002f * perspectiveScale + 0.001f);
+                AddLine(prevX, prevY, xScreen, yScreen, fadedColor, 0.002f * perspectiveScale + 0.001f);
             }
             
             prevX = xScreen;

@@ -1,56 +1,22 @@
-# Visualization: Cyber-Valley
+# Visualization: Cyber-Valley (Fixed Logic)
 
-## Description
+## Core Concept: The "Stamp and Scroll"
+The mountains are not a live-reacting mesh. Instead, they are a series of historical "snapshots" of the spectrum. 
 
-A perspective-based 3D "Infinite Runner" visualization. The scene consists of a central road/grid flanked by mountains that are generated in real-time by the audio spectrum. All elements originate at the bottom of the screen and retreat towards a fixed horizon.
+### 1. The Mountain Logic (Immutable History)
+- **Generation**: At a fixed interval (tied to the 'Speed' variable), take the current `SpectrumNormalized` and "stamp" it as a new line at the bottom of the screen.
+- **Immutability**: Once a mountain line is created, its height data MUST NEVER update again. It is a frozen piece of history.
+- **Movement**: This line then travels toward the horizon at the exact same speed as the road grid.
+- **Perspective**: As the line moves toward the horizon, scale its width and height down to converge at the vanishing point.
 
-### 1. The Celestial Cycle (Sun & Moon)
+### 2. Geometry & Mapping
+- **V-Shape**: Map Bass to the far left/right edges and Treble toward the center. 
+- **Flat Lines**: Draw the mountains as flat lines (no vertical slanting). The mirrored spectrum naturally creates the "V" canyon look.
+- **Depth**: You should maintain a buffer of roughly 30-50 lines to fill the distance between the viewer and the horizon.
 
-* **Motion**: The Sun and Moon follow a continuous circular rotation centered on the horizon line.
-* **Timing**: A full "Day/Night" cycle (360-degree rotation) takes exactly **10 minutes**.
-* **Behavior**: These are static, glowing orbs. **Do not apply audio-reactive shaking or scaling** to the celestial bodies themselves.
-
-
-### 2. The Valley Geometry (Mountains & Road)
-
-* **Perspective**: A fixed horizon line is set at 40% from the top of the screen.
-* **The Mountains**:
-* Generated using the **latest spectrum line**.
-* **Mapping**: Bass frequencies are mapped to the **outer edges** (far left and far right). Higher frequencies slope down toward the center.
-* **Effect**: This creates a mirrored "V" shape, forming a valley/canyon that frames the center of the screen.
-
-note:
-
-```
-Ive noted the mountain lines are slanted in a V shape, diagonal ? but this wont bee needed due to the typical shape of the spectrum, when mirrored it will look like a rough V so draw them Flat.
-```
-
-* **Additional Ambience**
-
-Day (Sun): Add some vapourwave clouds, that move gently
-
-Night (Moon): Should have twinkling stars, add the odd shooting star randomly. 
-Make stars move towards user like a simple starfield effect, ensure only above horizon, this will include the shoot stars
-
-* **The Movement**:
-* The "Latest" spectrum line is drawn at the bottom of the screen.
-* On every update, existing lines are scaled down and translated toward the horizon to simulate depth.
-
-
-* **The Center**: A grid-patterned road sits in the center between the mountains, also moving away from the viewer toward the horizon.
-
-### 3. Audio & Aesthetics
-
-* **Colors**:
-* **Day**: Neon Pink/Orange gradients.
-* **Night**: Deep Blues/Purples.
-
-
-* **Sync**: While the mountains are formed by the spectrum, the overall "Flow" speed is constant unless modified by user controls.
-
-## Controls
-
-* **V**: Toggle between Sun (Vaporwave) and Moon (Cyberpunk) sky states.
-* **G**: Toggle Grid visibility on the road.
-* **- / =**: Decrease/Increase the speed of the horizon retreat.
-
+### 3. Synchronized Speed
+- **Global Velocity**: The variable `m_cv2Speed` must control the retreat of:
+    1. The Road Grid (Texture offset/scrolling).
+    2. The Starfield (Stars moving toward the viewer).
+    3. The Mountain Lines (Translation toward the horizon).
+- All three elements must appear to move through space at the same velocity.
