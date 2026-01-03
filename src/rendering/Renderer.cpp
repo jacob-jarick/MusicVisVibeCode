@@ -103,7 +103,7 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startV
     QueryPerformanceCounter(&m_lastTime);
     
     // Set starting visualization if specified
-    if (startVis >= 0 && startVis <= 2) {
+    if (startVis >= 0 && startVis <= 3) {
         m_currentVis = (Visualization)startVis;
     }
 
@@ -246,7 +246,7 @@ void Renderer::Render() {
     m_context->PSSetSamplers(0, 1, &m_samplerState);
 
     // Draw Background
-    if (m_showBackground && m_backgroundSRV && (m_currentVis == Visualization::Spectrum || m_currentVis == Visualization::LineFader)) {
+    if (m_showBackground && m_backgroundSRV && (m_currentVis == Visualization::Spectrum || m_currentVis == Visualization::LineFader || m_currentVis == Visualization::Spectrum2)) {
         float screenAR = (float)m_width / (float)m_height;
         float imageAR = m_bgAspectRatio;
         
@@ -311,6 +311,8 @@ void Renderer::Render() {
         UpdateCyberValley2Vis(deltaTime);
     } else if (m_currentVis == Visualization::LineFader) {
         UpdateLineFaderVis(deltaTime);
+    } else if (m_currentVis == Visualization::Spectrum2) {
+        UpdateSpectrum2Vis(deltaTime);
     }
     
     RenderOSD();
@@ -445,6 +447,18 @@ void Renderer::RenderOSD() {
                       "M: Cycle Mirror Mode\n"
                       "Left/Right: Change Vis\n"
                       "ESC: Quit";
+        } else if (m_currentVis == Visualization::Spectrum2) {
+            osdText = "HELP (SPECTRUM 2):\n\n"
+                      "H: Toggle Help\n"
+                      "I: Toggle Info\n"
+                      "C: Toggle Clock\n"
+                      "F: Toggle Fullscreen\n"
+                      "B: Random Background\n"
+                      "[/]: Prev/Next Background\n"
+                      "-/=: Adjust Decay\n"
+                      "M: Cycle Mirror Mode\n"
+                      "Left/Right: Change Vis\n"
+                      "ESC: Quit";
         }
     } else if (m_showInfo) {
         std::stringstream ss;
@@ -462,6 +476,15 @@ void Renderer::RenderOSD() {
             if (m_lfMirrorMode == LFMirrorMode::None) {
                 ss << "Mirror: None\n";
             } else if (m_lfMirrorMode == LFMirrorMode::BassEdges) {
+                ss << "Mirror: Bass at Edges\n";
+            } else {
+                ss << "Mirror: Bass in Center\n";
+            }
+        } else if (m_currentVis == Visualization::Spectrum2) {
+            ss << "Decay Rate: " << m_s2DecayRate << "\n";
+            if (m_s2MirrorMode == S2MirrorMode::None) {
+                ss << "Mirror: None\n";
+            } else if (m_s2MirrorMode == S2MirrorMode::BassEdges) {
                 ss << "Mirror: Bass at Edges\n";
             } else {
                 ss << "Mirror: Bass in Center\n";
@@ -635,6 +658,8 @@ void Renderer::HandleInput(WPARAM key) {
             m_cv2Speed = std::max(0.25f, m_cv2Speed - 0.25f);  // Minimum 0.25 lines/sec (4x slower)
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::max(1, m_lfScrollSpeed - 1);  // Minimum 1 pixel
+        } else if (m_currentVis == Visualization::Spectrum2) {
+            m_s2DecayRate = std::max(0.1f, m_s2DecayRate - 0.5f);
         }
     } else if (key == VK_OEM_PLUS || key == VK_ADD) {
         if (m_currentVis == Visualization::Spectrum) {
@@ -643,6 +668,8 @@ void Renderer::HandleInput(WPARAM key) {
             m_cv2Speed = std::min(2.5f, m_cv2Speed + 0.25f);  // Maximum 2.5 lines/sec
         } else if (m_currentVis == Visualization::LineFader) {
             m_lfScrollSpeed = std::min(50, m_lfScrollSpeed + 1);  // Maximum 50 pixels
+        } else if (m_currentVis == Visualization::Spectrum2) {
+            m_s2DecayRate = std::min(20.0f, m_s2DecayRate + 0.5f);
         }
     } else if (key == 'H') {
         m_showHelp = !m_showHelp;
@@ -674,6 +701,15 @@ void Renderer::HandleInput(WPARAM key) {
             } else {
                 m_lfMirrorMode = LFMirrorMode::None;
             }
+        } else if (m_currentVis == Visualization::Spectrum2) {
+            // Cycle through mirror modes
+            if (m_s2MirrorMode == S2MirrorMode::None) {
+                m_s2MirrorMode = S2MirrorMode::BassEdges;
+            } else if (m_s2MirrorMode == S2MirrorMode::BassEdges) {
+                m_s2MirrorMode = S2MirrorMode::BassCenter;
+            } else {
+                m_s2MirrorMode = S2MirrorMode::None;
+            }
         }
     } else if (key == 'F') {
         m_isFullscreen = !m_isFullscreen;
@@ -700,11 +736,11 @@ void Renderer::HandleInput(WPARAM key) {
         }
     } else if (key == VK_LEFT) {
         int vis = (int)m_currentVis - 1;
-        if (vis < 0) vis = 2; // Wrap to last (3 visualizations: 0, 1, 2)
+        if (vis < 0) vis = 3; // Wrap to last (4 visualizations: 0, 1, 2, 3)
         m_currentVis = (Visualization)vis;
     } else if (key == VK_RIGHT) {
         int vis = (int)m_currentVis + 1;
-        if (vis > 2) vis = 0; // Wrap to first
+        if (vis > 3) vis = 0; // Wrap to first
         m_currentVis = (Visualization)vis;
     } else if (key == '1') {
         m_currentVis = Visualization::Spectrum;
@@ -712,9 +748,11 @@ void Renderer::HandleInput(WPARAM key) {
         m_currentVis = Visualization::CyberValley2;
     } else if (key == '3') {
         m_currentVis = Visualization::LineFader;
+    } else if (key == '4') {
+        m_currentVis = Visualization::Spectrum2;
     } else if (key == 'R') {
         // Random visualization
-        m_currentVis = (Visualization)(rand() % 3);
+        m_currentVis = (Visualization)(rand() % 4);
     } else if (key >= '0' && key <= '9') {
         // TODO: Switch to visualization index
     } else if (key == VK_ESCAPE) {
@@ -1430,4 +1468,178 @@ void Renderer::UpdateLineFaderVis(float deltaTime) {
     m_context->Draw(6, 0);
     
     m_context->PSSetShaderResources(0, 1, &nullSRV);
+}
+
+void Renderer::UpdateSpectrum2Vis(float deltaTime) {
+    const AudioData& data = m_audioEngine.GetData();
+    
+    std::vector<Vertex> vertices;
+
+    // 28 bars, 48 segments per bar
+    const int numBars = 28;
+    const int segmentsPerBar = 48;
+    
+    // Helper to calculate bar positions based on mirror mode
+    auto GetBarPositions = [&](int barIndex, float& xStart, float& barWidth) {
+        float totalWidth = 2.0f; // NDC space -1 to 1
+        
+        if (m_s2MirrorMode == S2MirrorMode::None) {
+            // No mirror - 28 bars across full width
+            barWidth = totalWidth / numBars;
+            xStart = -1.0f + barIndex * barWidth;
+        } else {
+            // Mirror modes - 28 bars displayed (14 per side, using 14 data sources)
+            barWidth = totalWidth / numBars;
+            
+            if (m_s2MirrorMode == S2MirrorMode::BassEdges) {
+                // Bass at edges: bar 0 at left edge, bar 13 at center-left, bar 14 at right edge, bar 27 at center-right
+                if (barIndex < 14) {
+                    // Left side: bass (index 0) on left edge
+                    xStart = -1.0f + barIndex * barWidth;
+                } else {
+                    // Right side: bass (bar 14, data 0) at right edge
+                    xStart = 1.0f - (barIndex - 13) * barWidth;
+                }
+            } else { // BassCenter
+                // Bass in center: bar 0 at center-left, bar 13 at left edge, bar 14 at center-right, bar 27 at right edge
+                if (barIndex < 14) {
+                    // Left side: bass (index 0) toward center
+                    xStart = 0.0f - (barIndex + 1) * barWidth;
+                } else {
+                    // Right side: bass (index 14, using data 0) toward center
+                    int mirrorIndex = barIndex - 14; // 14->0, 15->1, ..., 27->13
+                    xStart = 0.0f + mirrorIndex * barWidth;
+                }
+            }
+        }
+    };
+    
+    float gap = 0.005f;
+    
+    for (int i = 0; i < numBars; i++) {
+        // Determine data source index for mirror modes
+        int dataIndex = i;
+        if (m_s2MirrorMode != S2MirrorMode::None && i >= 14) {
+            // Mirror modes: bars 14-27 use same data as bars 0-13
+            dataIndex = i - 14;
+        }
+        
+        // Data curation: Use bins 0-223 (224 bins), divided into 28 buckets = 8 bins per bucket
+        // In mirror mode, only use first 14 buckets (112 bins)
+        float barValue = 0.0f;
+        int binsPerBucket = (m_s2MirrorMode == S2MirrorMode::None) ? 8 : 16;
+        int maxBinIndex = (m_s2MirrorMode == S2MirrorMode::None) ? 224 : 224;
+        
+        for (int j = 0; j < binsPerBucket; j++) {
+            int binIndex = dataIndex * binsPerBucket + j;
+            if (binIndex < maxBinIndex) {
+                float val = data.SpectrumNormalized[binIndex];
+                if (val > barValue) barValue = val;
+            }
+        }
+        
+        // Scale to 48 segments
+        float currentHeightSegments = barValue * segmentsPerBar;
+        int numSegments = (int)currentHeightSegments;
+        
+        // Update Peak
+        if (currentHeightSegments > m_s2PeakLevels[i]) {
+            m_s2PeakLevels[i] = currentHeightSegments;
+        } else {
+            m_s2PeakLevels[i] -= m_s2DecayRate * deltaTime;
+            if (m_s2PeakLevels[i] < 0.0f) m_s2PeakLevels[i] = 0.0f;
+        }
+
+        // Calculate bar position
+        float xStart, barWidth;
+        GetBarPositions(i, xStart, barWidth);
+        
+        float w = barWidth - 2 * gap;
+        float h = 2.0f / segmentsPerBar;
+        float segGap = 0.003f;
+
+        // Draw Segments
+        for (int s = 0; s < numSegments && s < segmentsPerBar; s++) {
+            float y = -1.0f + s * h + segGap;
+            float segH = h - 2 * segGap;
+
+            // Smooth color gradient with 65% transparency (alpha = 0.35)
+            XMFLOAT4 color;
+            if (s < 12) {
+                // Green zone (0-12)
+                color = {0.0f, 1.0f, 0.0f, 0.35f};
+            } else if (s < 24) {
+                // Green to Yellow gradient (12-24)
+                float t = (float)(s - 12) / 12.0f;
+                color = {t, 1.0f, 0.0f, 0.35f};
+            } else if (s < 36) {
+                // Yellow to Orange gradient (24-36)
+                float t = (float)(s - 24) / 12.0f;
+                color = {1.0f, 1.0f - t * 0.5f, 0.0f, 0.35f};
+            } else {
+                // Orange to Red gradient (36-48)
+                float t = (float)(s - 36) / 12.0f;
+                color = {1.0f, 0.5f - t * 0.5f, 0.0f, 0.35f};
+            }
+
+            // Main segment (slightly rounded via multiple quads)
+            float x = xStart + gap;
+            
+            // Center quad (main body)
+            vertices.push_back({ {x + 0.002f, y + segH - 0.001f, 0.0f}, color, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + w - 0.002f, y + segH - 0.001f, 0.0f}, color, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + 0.002f, y + 0.001f, 0.0f}, color, {-1.0f, -1.0f} });
+            
+            vertices.push_back({ {x + w - 0.002f, y + segH - 0.001f, 0.0f}, color, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + w - 0.002f, y + 0.001f, 0.0f}, color, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + 0.002f, y + 0.001f, 0.0f}, color, {-1.0f, -1.0f} });
+            
+            // Darker border
+            XMFLOAT4 borderColor = {color.x * 0.6f, color.y * 0.6f, color.z * 0.6f, color.w};
+            float borderThickness = 0.0008f;
+            
+            // Top border
+            vertices.push_back({ {x, y + segH, 0.0f}, borderColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + w, y + segH, 0.0f}, borderColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x, y + segH - borderThickness, 0.0f}, borderColor, {-1.0f, -1.0f} });
+            
+            vertices.push_back({ {x + w, y + segH, 0.0f}, borderColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + w, y + segH - borderThickness, 0.0f}, borderColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x, y + segH - borderThickness, 0.0f}, borderColor, {-1.0f, -1.0f} });
+        }
+
+        // Draw Peak with 50% transparency
+        int peakSegment = (int)m_s2PeakLevels[i];
+        if (peakSegment >= 0 && peakSegment < segmentsPerBar + 1) {
+            float y = -1.0f + peakSegment * h + segGap;
+            float segH = h - 2 * segGap;
+            float x = xStart + gap;
+            XMFLOAT4 peakColor = {1.0f, 0.0f, 0.0f, 0.5f}; // Red peak, 50% alpha
+
+            vertices.push_back({ {x, y + segH, 0.0f}, peakColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + w, y + segH, 0.0f}, peakColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x, y, 0.0f}, peakColor, {-1.0f, -1.0f} });
+
+            vertices.push_back({ {x + w, y + segH, 0.0f}, peakColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x + w, y, 0.0f}, peakColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x, y, 0.0f}, peakColor, {-1.0f, -1.0f} });
+        }
+    }
+
+    if (vertices.empty()) return;
+
+    D3D11_MAPPED_SUBRESOURCE ms;
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    m_context->IASetVertexBuffers(0, 1, &m_vertexBuffer, &stride, &offset);
+    m_context->IASetInputLayout(m_inputLayout);
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->VSSetShader(m_vertexShader, NULL, 0);
+    m_context->PSSetShader(m_pixelShader, NULL, 0);
+
+    m_context->Draw((UINT)vertices.size(), 0);
 }

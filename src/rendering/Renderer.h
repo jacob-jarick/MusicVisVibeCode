@@ -23,6 +23,7 @@ private:
     void UpdateSpectrumVis(float deltaTime);
     void UpdateCyberValley2Vis(float deltaTime);
     void UpdateLineFaderVis(float deltaTime);
+    void UpdateSpectrum2Vis(float deltaTime);
 
     AudioEngine& m_audioEngine;
     HWND m_hwnd;
@@ -46,7 +47,7 @@ private:
     };
 
     // Visualization State
-    enum class Visualization { Spectrum, CyberValley2, LineFader };
+    enum class Visualization { Spectrum, CyberValley2, LineFader, Spectrum2 };
     Visualization m_currentVis = Visualization::Spectrum;
 
     // Spectrum Vis State
@@ -71,6 +72,12 @@ private:
     ID3D11Texture2D* m_lfTempTexture = nullptr;
     ID3D11ShaderResourceView* m_lfTempSRV = nullptr;
     ID3D11RenderTargetView* m_lfTempRTV = nullptr;
+
+    // Spectrum2 Vis State
+    float m_s2PeakLevels[28] = {0};
+    float m_s2DecayRate = 5.0f;       // Segments per second (default: 1 segment every 0.2s)
+    enum class S2MirrorMode { None, BassEdges, BassCenter };
+    S2MirrorMode m_s2MirrorMode = S2MirrorMode::BassEdges;
 
     LARGE_INTEGER m_lastTime;
     LARGE_INTEGER m_frequency;
