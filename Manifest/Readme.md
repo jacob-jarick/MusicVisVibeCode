@@ -4,6 +4,14 @@ This is my plain english description, this file will remain simple and high leve
 
 manifest.md will serve as detailed agent guide.
 
+# Agent Notes
+
+always rebuild on code updates
+
+always use CMake found here "C:\Program Files\CMake\bin;" 
+
+always sync from updated Readme.md files to Manifest.md files in same directory. 
+
 # Project Folders and Files
 
 - Backgrounds: collection of images that can be used as visualization backgrounds.
@@ -48,7 +56,21 @@ Most Visualizations I expect will only ever need to reference or **SpectrumNorma
 
 if no audio for last 3 seconds set **playing**=false, if audio set **playing**=true
 
-Track highest peak, get highest peak value from entire specturum each time **Spectrum** updates, if higher peak found raise immediately. if nothing in **Spectrum** matches or exceeds **Scale** reduce Scale by 1%
+#### Scaling 
+
+"Dynamic Scaling (AGC) Logic: The Scale variable acts as the global normalization ceiling for all spectrum data.
+
+**Expansion (Immediate):**
+
+On every audio update, if any value in the raw Spectrum array exceeds the current Scale, immediately set Scale to that new peak value. This prevents clipping.
+
+**Contraction (Gradual):**
+
+If the maximum value of the current Spectrum is less than the current Scale, reduce Scale by 5% per second (calculated using DeltaTime). This ensures that during quiet passages, the sensitivity increases until the bars fill the screen again.
+
+**Floor:**
+
+Define a MIN_SCALE (e.g., 0.001) to prevent the scale from dropping to zero during absolute silence, which would cause infinite spikes or "noise" flickers."
 
 ## Visualization Engine
 
@@ -65,6 +87,15 @@ In that directory will be
 
 Visualizations will be ordered by name
 
+### Vis Background
+
+Select randomly 1 picture from background folder and use as vis background (draw over image)
+
+Image should be smoothly zoomed so no top / bottom or left and right black bars.
+Do not stretch but scale and crop as neccessary
+
+If a background is available, start with random background displayed always.
+
 ## Controls
 
 Visualizations will have a shared set of master common controls
@@ -77,9 +108,44 @@ Visualizations will have a shared set of master common controls
 - i: info, current visualization name and index, current **Scale** Value, FPS
 - n: toggle using normalized or raw values for visualization
 - f: toggle fullescreen
+- b: change background randomly, but ensure we dont use the current one again. (dont go to black)
+- [: previous background (wrap dir listing)
+- ]: next backhround (wrap dir listing) 
+- c: show clock (hides info, help)
 
 ## Display
 
 Single resizable window
 
-starts with first available Visualization
+starts with first available 
+
+# OSD Notes
+
+OSD display should be placed top right. Put slightly tinted transparent box behind fonts so easier to read.
+
+## Clock
+
+yes a clock
+
+Digital style clock, placed top right over visualisations etc
+
+Display:
+
+```
+HH:MM:SS
+DD/MM/YYYY
+Day Of Week
+```
+
+clock should be right alined.
+
+Clock font should be large.
+
+Clock background:
+
+Tinted box behind clock to make font more legible.
+Tint should be black ~50% transparency.
+Background box should be just 20% wider and taller than clock text.
+
+Clock should be its own box and font size and not shared with Info and Help OSD
+

@@ -1,0 +1,11 @@
+build/
+.vscode/
+*.exe
+*.o
+*.obj
+*.pdb
+*.ilk
+*.user
+*.suo
+*.db
+.DS_Store
