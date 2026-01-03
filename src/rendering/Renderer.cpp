@@ -442,6 +442,7 @@ void Renderer::RenderOSD() {
                       "F: Toggle Fullscreen\n"
                       "B: Random Background\n"
                       "[/]: Prev/Next Background\n"
+                      ",/.: Adjust Fade Rate\n"
                       "-/=: Adjust Scroll Speed\n"
                       "M: Cycle Mirror Mode\n"
                       "Left/Right: Change Vis\n"
@@ -459,6 +460,7 @@ void Renderer::RenderOSD() {
             ss << "Mode: " << (m_cv2SunMode ? "Day (Sun)" : "Night (Moon)") << "\n";
         } else if (m_currentVis == Visualization::LineFader) {
             ss << "Scroll Speed: " << m_lfScrollSpeed << " px\n";
+            ss << "Fade Rate: " << std::fixed << std::setprecision(2) << (m_lfFadeRate * 100.0f) << "%\n";
             if (m_lfMirrorMode == LFMirrorMode::None) {
                 ss << "Mirror: None\n";
             } else if (m_lfMirrorMode == LFMirrorMode::BassEdges) {
@@ -621,7 +623,15 @@ void Renderer::LoadRandomBackground() {
 }
 
 void Renderer::HandleInput(WPARAM key) {
-    if (key == VK_OEM_MINUS || key == VK_SUBTRACT) {
+    if (key == VK_OEM_COMMA) {  // ',' Key
+        if (m_currentVis == Visualization::LineFader) {
+            m_lfFadeRate = std::max(0.0005f, m_lfFadeRate - 0.0005f);  // Min 0.05%
+        }
+    } else if (key == VK_OEM_PERIOD) {  // '.' Key
+        if (m_currentVis == Visualization::LineFader) {
+            m_lfFadeRate = std::min(0.005f, m_lfFadeRate + 0.0005f);  // Max 0.50%
+        }
+    } else if (key == VK_OEM_MINUS || key == VK_SUBTRACT) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
@@ -635,7 +645,7 @@ void Renderer::HandleInput(WPARAM key) {
         } else if (m_currentVis == Visualization::CyberValley2) {
             m_cv2Speed = std::min(2.5f, m_cv2Speed + 0.25f);  // Maximum 2.5 lines/sec
         } else if (m_currentVis == Visualization::LineFader) {
-            m_lfScrollSpeed = std::min(20, m_lfScrollSpeed + 1);  // Maximum 20 pixels
+            m_lfScrollSpeed = std::min(50, m_lfScrollSpeed + 1);  // Maximum 50 pixels
         }
     } else if (key == 'H') {
         m_showHelp = !m_showHelp;
@@ -1257,8 +1267,7 @@ void Renderer::UpdateLineFaderVis(float deltaTime) {
     m_context->Draw(6, 0);
     
     // Apply fade with semi-transparent black overlay
-    float fadeAmount = 0.015f;  // 1.5% fade per frame for slower fade
-    XMFLOAT4 fadeOverlay = {0.0f, 0.0f, 0.0f, fadeAmount};
+    XMFLOAT4 fadeOverlay = {0.0f, 0.0f, 0.0f, m_lfFadeRate};
     
     vertices.clear();
     vertices.push_back({ {-1.0f, 1.0f, 0.0f}, fadeOverlay, {-1.0f, -1.0f} });
@@ -1333,10 +1342,10 @@ void Renderer::UpdateLineFaderVis(float deltaTime) {
     
     // Draw based on mirror mode
     if (m_lfMirrorMode == LFMirrorMode::None) {
-        // No mirror - full spectrum across screen
-        for (int i = 0; i < 255; i++) {
-            float x1 = -1.0f + (float)i / 255.0f * 2.0f;
-            float x2 = -1.0f + (float)(i + 1) / 255.0f * 2.0f;
+        // No mirror - full spectrum across screen (using first 224 bins, dropping high end)
+        for (int i = 0; i < 223; i++) {
+            float x1 = -1.0f + (float)i / 223.0f * 2.0f;
+            float x2 = -1.0f + (float)(i + 1) / 223.0f * 2.0f;
             float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
             float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
             
@@ -1344,19 +1353,19 @@ void Renderer::UpdateLineFaderVis(float deltaTime) {
         }
     } else if (m_lfMirrorMode == LFMirrorMode::BassEdges) {
         // Bass at edges - mirror at center
-        // Left half: normal spectrum
-        for (int i = 0; i < 255; i++) {
-            float x1 = -1.0f + (float)i / 255.0f;
-            float x2 = -1.0f + (float)(i + 1) / 255.0f;
+        // Left half: normal spectrum (using first 224 bins)
+        for (int i = 0; i < 223; i++) {
+            float x1 = -1.0f + (float)i / 223.0f;
+            float x2 = -1.0f + (float)(i + 1) / 223.0f;
             float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
             float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
             
             DrawLineSegment(x1, y1, x2, y2);
         }
-        // Right half: flipped spectrum
-        for (int i = 0; i < 255; i++) {
-            float x1 = 1.0f - (float)i / 255.0f;
-            float x2 = 1.0f - (float)(i + 1) / 255.0f;
+        // Right half: flipped spectrum (using first 224 bins)
+        for (int i = 0; i < 223; i++) {
+            float x1 = 1.0f - (float)i / 223.0f;
+            float x2 = 1.0f - (float)(i + 1) / 223.0f;
             float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
             float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
             
@@ -1364,19 +1373,19 @@ void Renderer::UpdateLineFaderVis(float deltaTime) {
         }
     } else {  // BassCenter
         // Bass in center - mirror at edges
-        // Left half: flipped spectrum
-        for (int i = 0; i < 255; i++) {
-            float x1 = 0.0f - (float)i / 255.0f;
-            float x2 = 0.0f - (float)(i + 1) / 255.0f;
+        // Left half: flipped spectrum (using first 224 bins)
+        for (int i = 0; i < 223; i++) {
+            float x1 = 0.0f - (float)i / 223.0f;
+            float x2 = 0.0f - (float)(i + 1) / 223.0f;
             float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
             float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
             
             DrawLineSegment(x1, y1, x2, y2);
         }
-        // Right half: normal spectrum
-        for (int i = 0; i < 255; i++) {
-            float x1 = 0.0f + (float)i / 255.0f;
-            float x2 = 0.0f + (float)(i + 1) / 255.0f;
+        // Right half: normal spectrum (using first 224 bins)
+        for (int i = 0; i < 223; i++) {
+            float x1 = 0.0f + (float)i / 223.0f;
+            float x2 = 0.0f + (float)(i + 1) / 223.0f;
             float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
             float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
             

@@ -34,18 +34,27 @@ Yes - visualization supports background images as per global specification.
 
 ## Controls (Visualization-Specific)
 
+- `,` (Comma): Decrease fade rate by 0.05%
+- `.` (Period): Increase fade rate by 0.05%
 - `-` (Minus): Decrease scroll speed by 1 pixel
 - `=` (Equals): Increase scroll speed by 1 pixel
 - `M`: Cycle through mirroring modes (No Mirror → Bass at Edges → Bass in Center → repeat)
 
+**Fade Rate Range**:
+- Minimum: 0.05% per frame (slowest fade, longest trails)
+- Maximum: 0.50% per frame (fastest fade, shortest trails)
+- Default: 0.50% per frame
+- Increment: 0.05%
+
 **Scroll Speed Range**: 
 - Minimum: 1 pixel per frame
-- Maximum: 20 pixels per frame
+- Maximum: 50 pixels per frame
 
 ## Info Display Requirements
 
 When Info Overlay is shown, display:
 - Current scroll speed (in pixels)
+- Current fade rate (as percentage)
 - Current mirroring mode:
   - "No Mirror"
   - "Mirror: Bass at Edges"

@@ -61,7 +61,8 @@ private:
     bool m_cv2ShowGrid = true;        // Grid visibility toggle
 
     // LineFader Vis State
-    int m_lfScrollSpeed = 5;          // Scroll speed in pixels per frame (1-20)
+    int m_lfScrollSpeed = 5;          // Scroll speed in pixels per frame (1-50)
+    float m_lfFadeRate = 0.005f;      // Fade rate per frame (0.0005 - 0.005, i.e., 0.05% - 0.50%)
     enum class LFMirrorMode { None, BassEdges, BassCenter };
     LFMirrorMode m_lfMirrorMode = LFMirrorMode::BassEdges;
     ID3D11Texture2D* m_lfHistoryTexture = nullptr;

@@ -4,7 +4,8 @@ Inspired by one of the milkdrop vis from winamp
 
 # controls
 
-- -/=: decrease/ increase scroll speed in units of pixels. min 1... max.. 20
+- ,/.: decrease/ increasse fade. Max fade 0.5% min fade 0.05% increments of 0.05%
+- -/=: decrease/ increase scroll speed in units of pixels. min 1... max.. 50
 - m: rotate through mirroring of spectrum
   - No mirror
   - Mirror with bass at edge of screen. left side = Spectrum, Right = Flipped spectrum. This would be the default
