@@ -4,6 +4,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <iostream>
 #include <filesystem>
 #include <random>
 
@@ -204,7 +205,10 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startV
     return true;
 }
 
-void Renderer::Run() {
+void Renderer::Run(float timeoutSeconds) {
+    m_timeoutSeconds = timeoutSeconds;
+    m_runningTime = 0.0f;
+    
     MSG msg = {0};
     while (msg.message != WM_QUIT) {
         if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
@@ -212,6 +216,12 @@ void Renderer::Run() {
             DispatchMessage(&msg);
         } else {
             Render();
+            
+            // Check timeout
+            if (m_timeoutSeconds > 0.0f && m_runningTime >= m_timeoutSeconds) {
+                std::cout << "Timeout reached (" << m_timeoutSeconds << "s), exiting..." << std::endl;
+                PostQuitMessage(0);
+            }
         }
     }
 }
@@ -221,6 +231,7 @@ void Renderer::Render() {
     QueryPerformanceCounter(&currentTime);
     float deltaTime = (float)(currentTime.QuadPart - m_lastTime.QuadPart) / m_frequency.QuadPart;
     m_lastTime = currentTime;
+    m_runningTime += deltaTime;
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
     m_context->ClearRenderTargetView(m_renderTargetView, clearColor);
 
@@ -422,6 +433,9 @@ void Renderer::RenderOSD() {
         ss << "FPS: " << m_fps << "\n";
         if (m_currentVis == Visualization::Spectrum) {
             ss << "Decay Rate: " << m_decayRate << "\n";
+        } else if (m_currentVis == Visualization::CyberValley2) {
+            ss << "Speed: " << m_cv2Speed << "\n";
+            ss << "Mode: " << (m_cv2SunMode ? "Day (Sun)" : "Night (Moon)") << "\n";
         }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
         ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No") << "\n";
@@ -581,13 +595,13 @@ void Renderer::HandleInput(WPARAM key) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
-            m_cv2Speed = std::max(0.1f, m_cv2Speed - 0.1f);
+            m_cv2Speed = std::max(0.25f, m_cv2Speed - 0.25f);  // Minimum 0.25 lines/sec (4x slower)
         }
     } else if (key == VK_OEM_PLUS || key == VK_ADD) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::min(20.0f, m_decayRate + 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
-            m_cv2Speed = std::min(2.0f, m_cv2Speed + 0.1f);
+            m_cv2Speed = std::min(2.5f, m_cv2Speed + 0.25f);  // Maximum 2.5 lines/sec
         }
     } else if (key == 'H') {
         m_showHelp = !m_showHelp;
@@ -770,13 +784,19 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
     const float HORIZON_Y = 0.2f;  // 40% from top (NDC: 1.0 is top, -1.0 is bottom, so 0.2 is 40% down)
     const int NUM_MOUNTAIN_POINTS = 32;  // Points per side of mountain (reduced for performance)
     const int NUM_DEPTH_LINES = 30;      // Number of lines going toward horizon (reduced for performance)
-    const float MAX_HEIGHT = 0.6f;       // Maximum mountain height
+    const float MAX_HEIGHT = 1.2f;       // Maximum mountain height (doubled for more dramatic effect)
+    const int NUM_FREQ_BINS = 32;        // Number of frequency bins to use (not grouped, individual)
     
     // Update timers
     m_cv2Time += deltaTime;
     if (m_cv2Time > 600.0f) m_cv2Time -= 600.0f;  // 10 minute cycle
     
-    m_cv2GridOffset += deltaTime * m_cv2Speed;
+    // Speed: NUM_DEPTH_LINES lines per screen, so 1/NUM_DEPTH_LINES moves one line
+    // Minimum speed = 1 line/sec = (1/30) per second
+    // Current speed multiplier: m_cv2Speed ranges from 0.5 to 3.0, so at 0.5: (1/30)*0.5 = 1 line per 2 sec
+    // Adjust so speed 1.0 = 1 line/sec: offset += (1/NUM_DEPTH_LINES) * m_cv2Speed * deltaTime
+    float linesPerSecond = m_cv2Speed;  // speed now directly controls lines per second
+    m_cv2GridOffset += (1.0f / NUM_DEPTH_LINES) * linesPerSecond * deltaTime;
     if (m_cv2GridOffset > 1.0f) m_cv2GridOffset -= 1.0f;
     
     // Day/Night colors based on V key toggle
@@ -839,31 +859,159 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
         colorGround, colorGround
     );
     
+    // 2a. ATMOSPHERE EFFECTS
+    if (m_cv2SunMode) {
+        // Day: Vaporwave clouds (drifting horizontally)
+        int numClouds = 5;
+        for (int c = 0; c < numClouds; c++) {
+            float cloudSeed = (float)c * 123.456f;
+            float cloudX = fmodf(cloudSeed + m_cv2Time * 0.05f, 2.0f) - 1.0f;  // Drift slowly
+            float cloudY = HORIZON_Y + 0.15f + sinf(cloudSeed) * 0.15f;
+            float cloudWidth = 0.2f + sinf(cloudSeed * 0.5f) * 0.1f;
+            float cloudHeight = 0.05f;
+            
+            XMFLOAT4 cloudColor = {1.0f, 0.85f, 0.95f, 0.3f};  // Semi-transparent pink/white
+            
+            // Draw cloud as rounded ellipse (8 segments)
+            for (int i = 0; i < 8; i++) {
+                float angle1 = (float)i / 8.0f * 6.28318f;
+                float angle2 = (float)(i + 1) / 8.0f * 6.28318f;
+                float cx1 = cloudX + cosf(angle1) * cloudWidth;
+                float cy1 = cloudY + sinf(angle1) * cloudHeight;
+                float cx2 = cloudX + cosf(angle2) * cloudWidth;
+                float cy2 = cloudY + sinf(angle2) * cloudHeight;
+                
+                vertices.push_back({ {cloudX, cloudY, 0.92f}, cloudColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {cx1, cy1, 0.92f}, cloudColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {cx2, cy2, 0.92f}, cloudColor, {-1.0f, -1.0f} });
+            }
+        }
+    } else {
+        // Night: Starfield effect - stars moving toward user (like mountains/road)
+        int numStars = 80;
+        for (int s = 0; s < numStars; s++) {
+            float starSeed = (float)s * 0.123f;
+            
+            // Calculate star depth (0 = horizon, 1 = near camera)
+            // Use grid offset to make stars scroll
+            float starDepth = fmodf(starSeed * 10.0f + m_cv2GridOffset * 2.0f, 1.0f);
+            
+            // Perspective: stars at horizon are small/converged, stars near camera are large/spread
+            float perspScale = starDepth;  // 0 at horizon, 1 at camera
+            
+            // Base position in "world space"
+            float baseX = (sinf(starSeed * 100.0f) * 2.0f - 1.0f);
+            float baseY = (sinf(starSeed * 200.0f) * 0.5f + 0.5f);  // 0-1 range
+            
+            // Apply perspective
+            float starX = baseX * perspScale;
+            float starY = HORIZON_Y + baseY * (1.0f - HORIZON_Y) * perspScale;
+            
+            // Only draw stars above horizon
+            if (starY > HORIZON_Y) {
+                float twinkle = 0.3f + 0.7f * (sinf(m_cv2Time * 3.0f + starSeed * 50.0f) * 0.5f + 0.5f);
+                float starSize = 0.002f + 0.003f * perspScale;  // Larger when closer
+                
+                XMFLOAT4 starColor = {1.0f, 1.0f, 1.0f, twinkle * (0.3f + 0.7f * perspScale)};  // Brighter when closer
+                
+                // Draw star as small diamond
+                vertices.push_back({ {starX, starY + starSize, 0.92f}, starColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {starX - starSize, starY, 0.92f}, starColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {starX + starSize, starY, 0.92f}, starColor, {-1.0f, -1.0f} });
+                
+                vertices.push_back({ {starX, starY - starSize, 0.92f}, starColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {starX - starSize, starY, 0.92f}, starColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {starX + starSize, starY, 0.92f}, starColor, {-1.0f, -1.0f} });
+            }
+        }
+        
+        // Shooting stars - also moving toward user in starfield
+        float shootingStarPhase = fmodf(m_cv2Time, 3.0f);
+        if (shootingStarPhase < 0.5f) {  // Active for 0.5 seconds
+            float progress = shootingStarPhase / 0.5f;
+            
+            // Shooting star moves from horizon toward camera (depth increases)
+            float shootDepth = progress;  // 0 at horizon, 1 at camera
+            float perspScale = shootDepth;
+            
+            // Start position (varies with time for randomness)
+            float baseX = sinf(floorf(m_cv2Time / 3.0f) * 12.34f) * 0.8f;
+            float baseY = 0.6f + sinf(floorf(m_cv2Time / 3.0f) * 23.45f) * 0.3f;
+            
+            // Current position
+            float shootX = baseX * perspScale;
+            float shootY = HORIZON_Y + baseY * (1.0f - HORIZON_Y) * perspScale;
+            
+            // Previous position (slightly back in depth for trail)
+            float prevDepth = shootDepth - 0.15f;
+            if (prevDepth < 0.0f) prevDepth = 0.0f;
+            float prevPerspScale = prevDepth;
+            float tailX = baseX * prevPerspScale;
+            float tailY = HORIZON_Y + baseY * (1.0f - HORIZON_Y) * prevPerspScale;
+            
+            // Only draw above horizon
+            if (shootY > HORIZON_Y) {
+                XMFLOAT4 shootColor = {1.0f, 1.0f, 0.8f, 1.0f};
+                XMFLOAT4 tailColor = {1.0f, 1.0f, 0.8f, 0.4f};
+                
+                // Draw shooting star with trail following movement (from tail to head)
+                AddLine(tailX, tailY, shootX, shootY, shootColor, 0.002f + 0.003f * perspScale);
+            }
+        }
+    }
+    
     // 3. DRAW SUN/MOON (static, centered above horizon)
     float sunX = 0.0f;
     float sunY = HORIZON_Y + 0.35f;  // Above horizon
     float sunRadius = 0.15f;
     
-    // Draw circle as triangle fan
-    int sunSegments = 32;
+    // Draw glow halo (larger, semi-transparent)
+    int sunSegments = 48;
+    float glowRadius = sunRadius * 1.8f;
+    XMFLOAT4 glowColor = {colorSun.x, colorSun.y, colorSun.z, 0.15f};
     for (int i = 0; i < sunSegments; i++) {
         float theta1 = (float)i / sunSegments * 6.28318f;
         float theta2 = (float)(i + 1) / sunSegments * 6.28318f;
         
-        vertices.push_back({ {sunX, sunY, 0.9f}, colorSun, {-1.0f, -1.0f} });
+        vertices.push_back({ {sunX, sunY, 0.91f}, glowColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {sunX + cosf(theta1) * glowRadius, sunY + sinf(theta1) * glowRadius, 0.91f}, glowColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {sunX + cosf(theta2) * glowRadius, sunY + sinf(theta2) * glowRadius, 0.91f}, glowColor, {-1.0f, -1.0f} });
+    }
+    
+    // Draw main orb with gradient (center brighter)
+    XMFLOAT4 centerColor = {colorSun.x * 1.2f, colorSun.y * 1.2f, colorSun.z * 1.2f, 1.0f};
+    if (centerColor.x > 1.0f) centerColor.x = 1.0f;
+    if (centerColor.y > 1.0f) centerColor.y = 1.0f;
+    if (centerColor.z > 1.0f) centerColor.z = 1.0f;
+    
+    for (int i = 0; i < sunSegments; i++) {
+        float theta1 = (float)i / sunSegments * 6.28318f;
+        float theta2 = (float)(i + 1) / sunSegments * 6.28318f;
+        
+        vertices.push_back({ {sunX, sunY, 0.9f}, centerColor, {-1.0f, -1.0f} });
         vertices.push_back({ {sunX + cosf(theta1) * sunRadius, sunY + sinf(theta1) * sunRadius, 0.9f}, colorSun, {-1.0f, -1.0f} });
         vertices.push_back({ {sunX + cosf(theta2) * sunRadius, sunY + sinf(theta2) * sunRadius, 0.9f}, colorSun, {-1.0f, -1.0f} });
     }
     
     // 4. DRAW MOUNTAINS (audio-reactive valley)
-    // For each depth row, we draw a spectrum line that forms the mountain profile
+    // For each depth row, we draw a flat spectrum line that forms the mountain profile
     // Lines closer to camera are at bottom, lines at horizon are at top
+    
+    float roadWidth = 0.15f;  // Half-width of road (matches road grid)
     
     for (int row = 0; row < NUM_DEPTH_LINES; row++) {
         // Calculate depth factor (0 = at camera/bottom, 1 = at horizon)
         float rawZ = (float)row / NUM_DEPTH_LINES;
-        float z = rawZ - m_cv2GridOffset / NUM_DEPTH_LINES;
-        if (z < 0) z += 1.0f;
+        
+        // Apply scrolling offset to position (makes lines move toward horizon at same speed as road)
+        float z = rawZ + m_cv2GridOffset;
+        if (z >= 1.0f) z -= 1.0f;
+        
+        // Get audio data based on scrolled position
+        // As a line scrolls from z=0 (bottom) to z=1 (horizon), it cycles through older history
+        // This makes lines "freeze" their audio snapshot as they move toward horizon
+        int histOffset = (int)(z * 59);  // Map scrolled z to history index (0-59)
+        int histIdx = (data.historyIndex - histOffset + 60) % 60;
         
         // Perspective: closer rows are spread wider, distant rows converge
         float perspectiveScale = 1.0f - z * 0.9f;  // 1.0 at camera, 0.1 at horizon
@@ -871,46 +1019,83 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
         // Y position: interpolate from bottom (-1) to horizon (0.2)
         float baseY = -1.0f + z * (HORIZON_Y + 1.0f);
         
-        // Get audio data for this row (use history for depth effect)
-        // Closer rows use more recent audio, distant rows use older audio
-        int histOffset = (int)(z * 59);  // Map z to history index (0-59)
-        int histIdx = (data.historyIndex - histOffset + 60) % 60;
+        // Road edge at this depth
+        float roadEdge = roadWidth * perspectiveScale;
         
-        // Generate mountain points for this row
-        float prevX = -1.0f;
+        // Draw left mountain (from left screen edge to left road edge)
+        float prevX = -1.0f * perspectiveScale;
         float prevY = baseY;
         
-        for (int i = 0; i <= NUM_MOUNTAIN_POINTS; i++) {
-            // X position in NDC (-1 to 1)
-            float xNorm = (float)i / NUM_MOUNTAIN_POINTS * 2.0f - 1.0f;
+        for (int i = 0; i <= NUM_MOUNTAIN_POINTS / 2; i++) {
+            // X position from left screen edge to left road edge
+            float t = (float)i / (NUM_MOUNTAIN_POINTS / 2);
+            float xScreen = -1.0f * perspectiveScale + t * (1.0f * perspectiveScale - roadEdge);
             
-            // Map X to spectrum bin (mirrored V shape)
-            // Center (x=0) -> high frequencies (bin 255, low amplitude)
-            // Edges (x=±1) -> low frequencies (bin 0, high amplitude = bass)
-            float absX = fabsf(xNorm);
-            int bin = (int)((1.0f - absX) * 127);  // Use first 128 bins, mirrored
-            if (bin < 0) bin = 0;
-            if (bin > 127) bin = 127;
+            // Map to frequency bin: use 32 bins from full 256 spectrum
+            // Left side: bins 0-31 (bass frequencies at outer edge)
+            int freqBin = (int)(t * (NUM_FREQ_BINS - 1));
+            if (freqBin < 0) freqBin = 0;
+            if (freqBin >= NUM_FREQ_BINS) freqBin = NUM_FREQ_BINS - 1;
+            
+            // Map to actual spectrum index (0-255)
+            int bin = (int)((float)freqBin / NUM_FREQ_BINS * 255.0f);
+            if (bin > 255) bin = 255;
             
             // Get spectrum value from history
             float specVal = m_useNormalized ? data.HistoryNormalized[histIdx][bin] : data.History[histIdx][bin];
             
-            // Calculate height: base slope + audio amplitude
-            float baseSlope = absX * 0.3f;  // V-shape base (edges higher than center)
+            // Calculate height (flat line, only audio modulation)
             float audioHeight = specVal * MAX_HEIGHT;
-            float totalHeight = (baseSlope + audioHeight) * perspectiveScale;
+            float totalHeight = audioHeight * perspectiveScale;
             
-            // Final screen position
-            float screenX = xNorm * perspectiveScale;
-            float screenY = baseY + totalHeight;
+            // Final Y position (flat horizontal line at baseY + height)
+            float yScreen = baseY + totalHeight;
             
             // Draw line segment from previous point
             if (i > 0) {
-                AddLine(prevX, prevY, screenX, screenY, colorGrid, 0.002f * perspectiveScale + 0.001f);
+                AddLine(prevX, prevY, xScreen, yScreen, colorGrid, 0.002f * perspectiveScale + 0.001f);
             }
             
-            prevX = screenX;
-            prevY = screenY;
+            prevX = xScreen;
+            prevY = yScreen;
+        }
+        
+        // Draw right mountain (from right road edge to right screen edge)
+        prevX = roadEdge;
+        prevY = baseY;
+        
+        for (int i = 0; i <= NUM_MOUNTAIN_POINTS / 2; i++) {
+            // X position from right road edge to right screen edge
+            float t = (float)i / (NUM_MOUNTAIN_POINTS / 2);
+            float xScreen = roadEdge + t * (1.0f * perspectiveScale - roadEdge);
+            
+            // Map to frequency bin: use 32 bins from full 256 spectrum (mirrored)
+            // Right side: bins 31-0 (mirrored, bass at outer edge)
+            int freqBin = (int)((1.0f - t) * (NUM_FREQ_BINS - 1));
+            if (freqBin < 0) freqBin = 0;
+            if (freqBin >= NUM_FREQ_BINS) freqBin = NUM_FREQ_BINS - 1;
+            
+            // Map to actual spectrum index (0-255)
+            int bin = (int)((float)freqBin / NUM_FREQ_BINS * 255.0f);
+            if (bin > 255) bin = 255;
+            
+            // Get spectrum value from history
+            float specVal = m_useNormalized ? data.HistoryNormalized[histIdx][bin] : data.History[histIdx][bin];
+            
+            // Calculate height (flat line, only audio modulation)
+            float audioHeight = specVal * MAX_HEIGHT;
+            float totalHeight = audioHeight * perspectiveScale;
+            
+            // Final Y position (flat horizontal line at baseY + height)
+            float yScreen = baseY + totalHeight;
+            
+            // Draw line segment from previous point
+            if (i > 0) {
+                AddLine(prevX, prevY, xScreen, yScreen, colorGrid, 0.002f * perspectiveScale + 0.001f);
+            }
+            
+            prevX = xScreen;
+            prevY = yScreen;
         }
     }
     
@@ -931,11 +1116,11 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
         }
         
         // Draw horizontal lines (scrolling toward horizon)
-        int numHorizLines = 20;
+        int numHorizLines = NUM_DEPTH_LINES;  // Match mountain line count for synchronized movement
         for (int i = 0; i < numHorizLines; i++) {
             float z = (float)i / numHorizLines;
-            z -= m_cv2GridOffset;
-            if (z < 0) z += 1.0f;
+            z += m_cv2GridOffset;
+            if (z >= 1.0f) z -= 1.0f;
             
             float y = -1.0f + z * (HORIZON_Y + 1.0f);
             float perspScale = 1.0f - z * 0.9f;

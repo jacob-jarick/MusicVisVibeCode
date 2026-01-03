@@ -2,60 +2,55 @@
 
 ## Description
 
-A classic 80s/Synthwave "Outrun" valley. The visualization features a dual-sided, mirrored heightmap that forms a massive canyon, sloping downward toward a central path that leads to the horizon.
+A perspective-based 3D "Infinite Runner" visualization. The scene consists of a central road/grid flanked by mountains that are generated in real-time by the audio spectrum. All elements originate at the bottom of the screen and retreat towards a fixed horizon.
 
-### 1. The Day/Night Cycle (The "Long Vibe")
+### 1. The Celestial Cycle (Sun & Moon)
 
-* **Rotation**: The Sun and Moon are positioned on an invisible wheel centered on the horizon.
-* **Timing**: A full cycle (Day to Night and back) takes **10 minutes**.
-* **The Celestial Transition**:
-* As the Sun sets, the sky colors should shift from vibrant Pink/Orange to deep Indigo/Violet.
-* The Moon rises as the Sun sinks below the 40% horizon line.
+* **Motion**: The Sun and Moon follow a continuous circular rotation centered on the horizon line.
+* **Timing**: A full "Day/Night" cycle (360-degree rotation) takes exactly **10 minutes**.
+* **Behavior**: These are static, glowing orbs. **Do not apply audio-reactive shaking or scaling** to the celestial bodies themselves.
 
 
-* **V-Key Override**: The `V` key manually toggles the current state (Sun mode vs. Moon mode), but the 10-minute rotation continues in the background.
+### 2. The Valley Geometry (Mountains & Road)
 
-### 2. The Valley Geometry (Mirrored "V" Slope)
+* **Perspective**: A fixed horizon line is set at 40% from the top of the screen.
+* **The Mountains**:
+* Generated using the **latest spectrum line**.
+* **Mapping**: Bass frequencies are mapped to the **outer edges** (far left and far right). Higher frequencies slope down toward the center.
+* **Effect**: This creates a mirrored "V" shape, forming a valley/canyon that frames the center of the screen.
 
-* **The Horizon**: Fixed at 40% from the top of the screen.
-* **The Slope**:
-* **Outer Edges (Far Left/Right)**: This is where the **Bass** (low frequencies) lives. These should be the tallest points of the "mountains."
-* **Center Path**: This is where the **Treble** (high frequencies) lives. It should be relatively flat, creating a "valley floor" or road effect.
-* **Result**: The spectrum creates a natural "V" shape that focuses the user's eye on the center of the horizon.
+note:
 
+```
+Ive noted the mountain lines are slanted in a V shape, diagonal ? but this wont bee needed due to the typical shape of the spectrum, when mirrored it will look like a rough V so draw them Flat.
+```
 
+* **Additional Ambience**
 
-### 3. Audio Synchronization & "The Kick"
+Day (Sun): Add some vapourwave clouds, that move gently
 
-* **The Bass Thump**:
-* **Sun/Moon Pulse**: The celestial body currently in the sky should subtly expand and increase its glow/bloom intensity in sync with the **Bass** (bins 0-5).
-* **World Shake**: High-intensity bass hits (detected via `HistoryNormalized`) should trigger a slight "Chromatic Aberration" or "Camera Jitter" effect.
+Night (Moon): Should have twinkling stars, add the odd shooting star randomly. 
+Make stars move towards user like a simple starfield effect, ensure only above horizon, this will include the shoot stars
 
-
-* **High-End Glitter**:
-* Use the **Treble** (bins 200-255) to trigger "Glitch Stars" or flickering neon highlights on the grid lines of the valley walls.
-
-
-
-### 4. Atmosphere & Aesthetics
-
-* **Color Palette**:
-* **Day**: Neon Pink (#FF007F) and Sunset Orange (#FF8C00).
-* **Night**: Electric Blue (#00FFFF) and Cyber Purple (#8A2BE2).
+* **The Movement**:
+* The "Latest" spectrum line is drawn at the bottom of the screen.
+* On every update, existing lines are scaled down and translated toward the horizon to simulate depth.
 
 
-* **The Grid**: Wireframe lines that flow toward the horizon. The "floor" should feel like it is moving at a constant speed, independent of the audio.
+* **The Center**: A grid-patterned road sits in the center between the mountains, also moving away from the viewer toward the horizon.
+
+### 3. Audio & Aesthetics
+
+* **Colors**:
+* **Day**: Neon Pink/Orange gradients.
+* **Night**: Deep Blues/Purples.
+
+
+* **Sync**: While the mountains are formed by the spectrum, the overall "Flow" speed is constant unless modified by user controls.
 
 ## Controls
 
-* **V**: Toggle between "Sun" (Vaporwave) and "Moon" (Cyberpunk) modes.
-* **G**: Toggle Grid visibility (Solid vs. Wireframe).
-* **- / =**: Decrease/Increase the speed of the "Flow" (movement toward the horizon).
+* **V**: Toggle between Sun (Vaporwave) and Moon (Cyberpunk) sky states.
+* **G**: Toggle Grid visibility on the road.
+* **- / =**: Decrease/Increase the speed of the horizon retreat.
 
----
-
-### Integration Note for the Agent
-
-Ensure the `CyberValley` class pulls from `SpectrumHighestSample[256]` for the mountain heights to prevent the "canyon walls" from flickering too violently. Use a simple linear interpolation (Lerp) when the Sun and Moon swap to ensure the sky color transition isn't a hard cut.
-
-**Would you like me to help you set up the "Transition Logic" in the Main Manifest so that switching between the Spectrum vis and this Cyber-Valley vis has a smooth fade-to-black?**

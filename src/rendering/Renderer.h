@@ -15,7 +15,7 @@ public:
     ~Renderer();
 
     bool Initialize(HINSTANCE hInstance, int width, int height, int startVis = -1);
-    void Run();
+    void Run(float timeoutSeconds = 0.0f);
 
 private:
     static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -54,7 +54,7 @@ private:
 
     // CyberValley2 Vis State
     float m_cv2Time = 0.0f;           // Day/night cycle timer (0-600 seconds)
-    float m_cv2Speed = 0.5f;          // Movement speed
+    float m_cv2Speed = 0.5f;          // Movement speed (lines per second, min 0.25, max 2.5)
     float m_cv2GridOffset = 0.0f;     // Grid scroll position (0-1)
     bool m_cv2SunMode = true;         // true = Day, false = Night
     bool m_cv2ShowGrid = true;        // Grid visibility toggle
@@ -64,6 +64,8 @@ private:
     float m_fps = 0.0f;
     int m_frameCount = 0;
     float m_timeElapsed = 0.0f;
+    float m_timeoutSeconds = 0.0f;
+    float m_runningTime = 0.0f;
 
     // OSD State
     bool m_showHelp = false;
