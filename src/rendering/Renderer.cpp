@@ -746,12 +746,16 @@ void Renderer::UpdateSpectrumVis(float deltaTime) {
     float gap = 0.01f;
     
     for (int i = 0; i < 16; i++) {
-        // Map 16 bars to 256 bins (approx 16 bins per bar)
-        // Use MAX instead of AVG to ensure peaks are visible and bars reach the top
+        // Trim highest 32 frequencies (use bins 0-223 = 224 bins total)
+        // Divide 224 bins into 16 buckets = 14 bins per bucket
+        // Use MAX value from each bucket to set each bar
         float barValue = 0.0f;
-        for (int j = 0; j < 16; j++) {
-            float val = m_useNormalized ? data.SpectrumNormalized[i * 16 + j] : data.Spectrum[i * 16 + j];
-            if (val > barValue) barValue = val;
+        for (int j = 0; j < 14; j++) {
+            int binIndex = i * 14 + j;
+            if (binIndex < 224) {
+                float val = m_useNormalized ? data.SpectrumNormalized[binIndex] : data.Spectrum[binIndex];
+                if (val > barValue) barValue = val;
+            }
         }
         
         // 16 segments per bar
@@ -798,7 +802,7 @@ void Renderer::UpdateSpectrumVis(float deltaTime) {
         if (peakSegment >= 0 && peakSegment < 17) { // Allow going one above
              float y = -1.0f + peakSegment * h + segGap;
              float segH = h - 2 * segGap;
-             XMFLOAT4 color = {1.0f, 0.0f, 0.0f, 1.0f}; // Red peak
+             XMFLOAT4 color = {1.0f, 0.0f, 0.0f, 0.5f}; // Red peak, 50% alpha
 
              vertices.push_back({ {x, y + segH, 0.0f}, color, {-1.0f, -1.0f} });
              vertices.push_back({ {x + w, y + segH, 0.0f}, color, {-1.0f, -1.0f} });
