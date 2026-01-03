@@ -57,7 +57,7 @@ See `Manifest/Visualizations/Spectrum/Manifest.md` for detailed specifications.
 - `H`: Toggle Help Menu (Hides Info/Clock if shown).
 - `I`: Toggle Info Overlay (Hides Help/Clock if shown).
 - `C`: Toggle Clock (Hides Help/Info if shown).
-- `N`: Toggle between Normalized and Raw values.
+- `N`: Toggle between Normalized and Raw values (todo remove).
 - `F`: Toggle Fullscreen.
 - `R`: Select Random Visualization.
 - `B`: Change Background Randomly (ensure new image, do not toggle off).

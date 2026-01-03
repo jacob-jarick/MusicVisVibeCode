@@ -81,6 +81,15 @@ If the maximum value of the current Spectrum is less than the current Scale, red
 
 Define a MIN_SCALE (e.g., 0.001) to prevent the scale from dropping to zero during absolute silence, which would cause infinite spikes or "noise" flickers."
 
+**Ceiling:**
+
+set to 1.5x see code notes below
+
+```c++
+// Cap Scale at 1.5 (which means minimum peak of 1.0/1.5 = 0.667)
+if (currentPeak < 0.667f) currentPeak = 0.667f;
+```
+
 ## Visualization Engine
 
 each visualization will have its own directory 
@@ -126,7 +135,7 @@ x - keybinging specific to current vis
 - right arrow: next vis, if at last vis, loop back to start. if only 1 vis do nothing.
 - r: select random vis.
 - i: info, current visualization name and index, current **Scale** Value, FPS
-- n: toggle using normalized or raw values for visualization
+- n: toggle using normalized or raw values for visualization (TODO remove)
 - f: toggle fullescreen
 - b: change background randomly, but ensure we dont use the current one again. (dont go to black)
 - [: previous background (wrap dir listing)
