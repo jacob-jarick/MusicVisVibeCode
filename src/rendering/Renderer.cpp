@@ -56,6 +56,12 @@ Renderer::Renderer(AudioEngine& audioEngine) : m_audioEngine(audioEngine) {
 }
 
 Renderer::~Renderer() {
+    if (m_lfHistorySRV) m_lfHistorySRV->Release();
+    if (m_lfHistoryRTV) m_lfHistoryRTV->Release();
+    if (m_lfHistoryTexture) m_lfHistoryTexture->Release();
+    if (m_lfTempSRV) m_lfTempSRV->Release();
+    if (m_lfTempRTV) m_lfTempRTV->Release();
+    if (m_lfTempTexture) m_lfTempTexture->Release();
     if (m_backgroundSRV) m_backgroundSRV->Release();
     if (m_backgroundTexture) m_backgroundTexture->Release();
     if (m_textSRV) m_textSRV->Release();
@@ -97,7 +103,7 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startV
     QueryPerformanceCounter(&m_lastTime);
     
     // Set starting visualization if specified
-    if (startVis >= 0 && startVis <= 1) {
+    if (startVis >= 0 && startVis <= 2) {
         m_currentVis = (Visualization)startVis;
     }
 
@@ -240,7 +246,7 @@ void Renderer::Render() {
     m_context->PSSetSamplers(0, 1, &m_samplerState);
 
     // Draw Background
-    if (m_showBackground && m_backgroundSRV && m_currentVis == Visualization::Spectrum) {
+    if (m_showBackground && m_backgroundSRV && (m_currentVis == Visualization::Spectrum || m_currentVis == Visualization::LineFader)) {
         float screenAR = (float)m_width / (float)m_height;
         float imageAR = m_bgAspectRatio;
         
@@ -303,6 +309,8 @@ void Renderer::Render() {
         UpdateSpectrumVis(deltaTime);
     } else if (m_currentVis == Visualization::CyberValley2) {
         UpdateCyberValley2Vis(deltaTime);
+    } else if (m_currentVis == Visualization::LineFader) {
+        UpdateLineFaderVis(deltaTime);
     }
     
     RenderOSD();
@@ -425,6 +433,19 @@ void Renderer::RenderOSD() {
                       "G: Toggle Grid\n"
                       "-/=: Adjust Speed\n"
                       "ESC: Quit";
+        } else if (m_currentVis == Visualization::LineFader) {
+            osdText = "HELP (LINE FADER):\n\n"
+                      "H: Toggle Help\n"
+                      "I: Toggle Info\n"
+                      "C: Toggle Clock\n"
+                      "N: Toggle Normalized\n"
+                      "F: Toggle Fullscreen\n"
+                      "B: Random Background\n"
+                      "[/]: Prev/Next Background\n"
+                      "-/=: Adjust Scroll Speed\n"
+                      "M: Cycle Mirror Mode\n"
+                      "Left/Right: Change Vis\n"
+                      "ESC: Quit";
         }
     } else if (m_showInfo) {
         std::stringstream ss;
@@ -436,6 +457,15 @@ void Renderer::RenderOSD() {
         } else if (m_currentVis == Visualization::CyberValley2) {
             ss << "Speed: " << m_cv2Speed << "\n";
             ss << "Mode: " << (m_cv2SunMode ? "Day (Sun)" : "Night (Moon)") << "\n";
+        } else if (m_currentVis == Visualization::LineFader) {
+            ss << "Scroll Speed: " << m_lfScrollSpeed << " px\n";
+            if (m_lfMirrorMode == LFMirrorMode::None) {
+                ss << "Mirror: None\n";
+            } else if (m_lfMirrorMode == LFMirrorMode::BassEdges) {
+                ss << "Mirror: Bass at Edges\n";
+            } else {
+                ss << "Mirror: Bass in Center\n";
+            }
         }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
         ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No") << "\n";
@@ -596,12 +626,16 @@ void Renderer::HandleInput(WPARAM key) {
             m_decayRate = std::max(0.1f, m_decayRate - 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
             m_cv2Speed = std::max(0.25f, m_cv2Speed - 0.25f);  // Minimum 0.25 lines/sec (4x slower)
+        } else if (m_currentVis == Visualization::LineFader) {
+            m_lfScrollSpeed = std::max(1, m_lfScrollSpeed - 1);  // Minimum 1 pixel
         }
     } else if (key == VK_OEM_PLUS || key == VK_ADD) {
         if (m_currentVis == Visualization::Spectrum) {
             m_decayRate = std::min(20.0f, m_decayRate + 0.5f);
         } else if (m_currentVis == Visualization::CyberValley2) {
             m_cv2Speed = std::min(2.5f, m_cv2Speed + 0.25f);  // Maximum 2.5 lines/sec
+        } else if (m_currentVis == Visualization::LineFader) {
+            m_lfScrollSpeed = std::min(20, m_lfScrollSpeed + 1);  // Maximum 20 pixels
         }
     } else if (key == 'H') {
         m_showHelp = !m_showHelp;
@@ -622,6 +656,17 @@ void Renderer::HandleInput(WPARAM key) {
     } else if (key == 'G') {
         if (m_currentVis == Visualization::CyberValley2) {
             m_cv2ShowGrid = !m_cv2ShowGrid;
+        }
+    } else if (key == 'M') {
+        if (m_currentVis == Visualization::LineFader) {
+            // Cycle through mirror modes
+            if (m_lfMirrorMode == LFMirrorMode::None) {
+                m_lfMirrorMode = LFMirrorMode::BassEdges;
+            } else if (m_lfMirrorMode == LFMirrorMode::BassEdges) {
+                m_lfMirrorMode = LFMirrorMode::BassCenter;
+            } else {
+                m_lfMirrorMode = LFMirrorMode::None;
+            }
         }
     } else if (key == 'N') {
         m_useNormalized = !m_useNormalized;
@@ -650,19 +695,21 @@ void Renderer::HandleInput(WPARAM key) {
         }
     } else if (key == VK_LEFT) {
         int vis = (int)m_currentVis - 1;
-        if (vis < 0) vis = 1; // Wrap to last (2 visualizations: 0, 1)
+        if (vis < 0) vis = 2; // Wrap to last (3 visualizations: 0, 1, 2)
         m_currentVis = (Visualization)vis;
     } else if (key == VK_RIGHT) {
         int vis = (int)m_currentVis + 1;
-        if (vis > 1) vis = 0; // Wrap to first
+        if (vis > 2) vis = 0; // Wrap to first
         m_currentVis = (Visualization)vis;
     } else if (key == '1') {
         m_currentVis = Visualization::Spectrum;
     } else if (key == '2') {
         m_currentVis = Visualization::CyberValley2;
+    } else if (key == '3') {
+        m_currentVis = Visualization::LineFader;
     } else if (key == 'R') {
         // Random visualization
-        m_currentVis = (Visualization)(rand() % 2);
+        m_currentVis = (Visualization)(rand() % 3);
     } else if (key >= '0' && key <= '9') {
         // TODO: Switch to visualization index
     } else if (key == VK_ESCAPE) {
@@ -791,12 +838,10 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
     m_cv2Time += deltaTime;
     if (m_cv2Time > 600.0f) m_cv2Time -= 600.0f;  // 10 minute cycle
     
-    // Speed: NUM_DEPTH_LINES lines per screen, so 1/NUM_DEPTH_LINES moves one line
-    // Minimum speed = 1 line/sec = (1/30) per second
-    // Current speed multiplier: m_cv2Speed ranges from 0.5 to 3.0, so at 0.5: (1/30)*0.5 = 1 line per 2 sec
-    // Adjust so speed 1.0 = 1 line/sec: offset += (1/NUM_DEPTH_LINES) * m_cv2Speed * deltaTime
-    float linesPerSecond = m_cv2Speed;  // speed now directly controls lines per second
-    m_cv2GridOffset += (1.0f / NUM_DEPTH_LINES) * linesPerSecond * deltaTime;
+    // Speed: controls how fast lines move toward horizon
+    // Higher values = more lines drawn per second
+    float linesPerSecond = m_cv2Speed;  // speed directly controls lines per second
+    m_cv2GridOffset += linesPerSecond * deltaTime;
     if (m_cv2GridOffset > 1.0f) m_cv2GridOffset -= 1.0f;
     
     // Day/Night colors based on V key toggle
@@ -1007,10 +1052,11 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
         float z = rawZ + m_cv2GridOffset;
         if (z >= 1.0f) z -= 1.0f;
         
-        // Get audio data based on scrolled position
-        // As a line scrolls from z=0 (bottom) to z=1 (horizon), it cycles through older history
-        // This makes lines "freeze" their audio snapshot as they move toward horizon
-        int histOffset = (int)(z * 59);  // Map scrolled z to history index (0-59)
+        // Get audio data based on ROW NUMBER, not scrolled position
+        // This makes each row always look at the same point in history
+        // Row 0 = current audio, Row 1 = 1 frame ago, Row 2 = 2 frames ago, etc.
+        // Lines FREEZE their audio snapshot and only zoom toward horizon
+        int histOffset = row;  // Direct row-to-history mapping
         int histIdx = (data.historyIndex - histOffset + 60) % 60;
         
         // Perspective: closer rows are spread wider, distant rows converge
@@ -1022,24 +1068,23 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
         // Road edge at this depth
         float roadEdge = roadWidth * perspectiveScale;
         
-        // Draw left mountain (from left screen edge to left road edge)
-        float prevX = -1.0f * perspectiveScale;
+        // Extend drawing range off-screen for closest lines (wider mountains at bottom)
+        float extendFactor = 1.0f + (1.0f - z) * 0.2f;  // 1.2x at camera, 1.0x at horizon
+        
+        // Draw left mountain (from left screen edge to left road edge, extended off-screen when close)
+        float prevX = -1.0f * perspectiveScale * extendFactor;
         float prevY = baseY;
         
         for (int i = 0; i <= NUM_MOUNTAIN_POINTS / 2; i++) {
-            // X position from left screen edge to left road edge
+            // X position from left screen edge to left road edge (extended range)
             float t = (float)i / (NUM_MOUNTAIN_POINTS / 2);
-            float xScreen = -1.0f * perspectiveScale + t * (1.0f * perspectiveScale - roadEdge);
+            float xScreen = -1.0f * perspectiveScale * extendFactor + t * (1.0f * perspectiveScale * extendFactor - roadEdge);
             
-            // Map to frequency bin: use 32 bins from full 256 spectrum
-            // Left side: bins 0-31 (bass frequencies at outer edge)
-            int freqBin = (int)(t * (NUM_FREQ_BINS - 1));
-            if (freqBin < 0) freqBin = 0;
-            if (freqBin >= NUM_FREQ_BINS) freqBin = NUM_FREQ_BINS - 1;
-            
-            // Map to actual spectrum index (0-255)
-            int bin = (int)((float)freqBin / NUM_FREQ_BINS * 255.0f);
-            if (bin > 255) bin = 255;
+            // Map to frequency bin: use 32 DIRECT samples from spectrum (not grouped)
+            // Left side: direct spectrum bins 0-31 (bass at outer edge)
+            int bin = (int)(t * 31.0f);  // Direct mapping to first 32 bins
+            if (bin < 0) bin = 0;
+            if (bin > 31) bin = 31;
             
             // Get spectrum value from history
             float specVal = m_useNormalized ? data.HistoryNormalized[histIdx][bin] : data.History[histIdx][bin];
@@ -1060,24 +1105,20 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
             prevY = yScreen;
         }
         
-        // Draw right mountain (from right road edge to right screen edge)
+        // Draw right mountain (from right road edge to right screen edge, extended off-screen when close)
         prevX = roadEdge;
         prevY = baseY;
         
         for (int i = 0; i <= NUM_MOUNTAIN_POINTS / 2; i++) {
-            // X position from right road edge to right screen edge
+            // X position from right road edge to right screen edge (extended range)
             float t = (float)i / (NUM_MOUNTAIN_POINTS / 2);
-            float xScreen = roadEdge + t * (1.0f * perspectiveScale - roadEdge);
+            float xScreen = roadEdge + t * (1.0f * perspectiveScale * extendFactor - roadEdge);
             
-            // Map to frequency bin: use 32 bins from full 256 spectrum (mirrored)
-            // Right side: bins 31-0 (mirrored, bass at outer edge)
-            int freqBin = (int)((1.0f - t) * (NUM_FREQ_BINS - 1));
-            if (freqBin < 0) freqBin = 0;
-            if (freqBin >= NUM_FREQ_BINS) freqBin = NUM_FREQ_BINS - 1;
-            
-            // Map to actual spectrum index (0-255)
-            int bin = (int)((float)freqBin / NUM_FREQ_BINS * 255.0f);
-            if (bin > 255) bin = 255;
+            // Map to frequency bin: use 32 DIRECT samples from spectrum (mirrored)
+            // Right side: direct spectrum bins 31-0 (mirrored, bass at outer edge)
+            int bin = 31 - (int)(t * 31.0f);  // Direct mapping, mirrored
+            if (bin < 0) bin = 0;
+            if (bin > 31) bin = 31;
             
             // Get spectrum value from history
             float specVal = m_useNormalized ? data.HistoryNormalized[histIdx][bin] : data.History[histIdx][bin];
@@ -1150,3 +1191,235 @@ void Renderer::UpdateCyberValley2Vis(float deltaTime) {
     }
 }
 
+void Renderer::UpdateLineFaderVis(float deltaTime) {
+    const AudioData& data = m_audioEngine.GetData();
+    
+    // Initialize textures if needed
+    if (!m_lfHistoryTexture) {
+        D3D11_TEXTURE2D_DESC desc = {0};
+        desc.Width = m_width;
+        desc.Height = m_height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        
+        m_device->CreateTexture2D(&desc, NULL, &m_lfHistoryTexture);
+        m_device->CreateShaderResourceView(m_lfHistoryTexture, NULL, &m_lfHistorySRV);
+        m_device->CreateRenderTargetView(m_lfHistoryTexture, NULL, &m_lfHistoryRTV);
+        
+        m_device->CreateTexture2D(&desc, NULL, &m_lfTempTexture);
+        m_device->CreateShaderResourceView(m_lfTempTexture, NULL, &m_lfTempSRV);
+        m_device->CreateRenderTargetView(m_lfTempTexture, NULL, &m_lfTempRTV);
+        
+        // Clear both textures to black
+        float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        m_context->ClearRenderTargetView(m_lfHistoryRTV, clearColor);
+        m_context->ClearRenderTargetView(m_lfTempRTV, clearColor);
+    }
+    
+    std::vector<Vertex> vertices;
+    D3D11_MAPPED_SUBRESOURCE ms;
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    XMFLOAT4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+    
+    // Step 1: Render to temp texture - shift history up and fade
+    m_context->OMSetRenderTargets(1, &m_lfTempRTV, NULL);
+    float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    m_context->ClearRenderTargetView(m_lfTempRTV, clearColor);
+    
+    // Calculate scroll offset in NDC
+    float scrollOffsetNDC = (float)m_lfScrollSpeed / (float)m_height * 2.0f;
+    
+    // Draw existing history, shifted up
+    vertices.clear();
+    vertices.push_back({ {-1.0f, 1.0f, 0.0f}, white, {0.0f, 0.0f} });
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, white, {1.0f, 0.0f} });
+    vertices.push_back({ {-1.0f, -1.0f + scrollOffsetNDC, 0.0f}, white, {0.0f, 1.0f} });
+    
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, white, {1.0f, 0.0f} });
+    vertices.push_back({ {1.0f, -1.0f + scrollOffsetNDC, 0.0f}, white, {1.0f, 1.0f} });
+    vertices.push_back({ {-1.0f, -1.0f + scrollOffsetNDC, 0.0f}, white, {0.0f, 1.0f} });
+    
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+    
+    m_context->IASetVertexBuffers(0, 1, &m_vertexBuffer, &stride, &offset);
+    m_context->IASetInputLayout(m_inputLayout);
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->VSSetShader(m_vertexShader, NULL, 0);
+    m_context->PSSetShader(m_pixelShader, NULL, 0);
+    m_context->PSSetShaderResources(0, 1, &m_lfHistorySRV);
+    m_context->Draw(6, 0);
+    
+    // Apply fade with semi-transparent black overlay
+    float fadeAmount = 0.015f;  // 1.5% fade per frame for slower fade
+    XMFLOAT4 fadeOverlay = {0.0f, 0.0f, 0.0f, fadeAmount};
+    
+    vertices.clear();
+    vertices.push_back({ {-1.0f, 1.0f, 0.0f}, fadeOverlay, {-1.0f, -1.0f} });
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, fadeOverlay, {-1.0f, -1.0f} });
+    vertices.push_back({ {-1.0f, -1.0f, 0.0f}, fadeOverlay, {-1.0f, -1.0f} });
+    
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, fadeOverlay, {-1.0f, -1.0f} });
+    vertices.push_back({ {1.0f, -1.0f, 0.0f}, fadeOverlay, {-1.0f, -1.0f} });
+    vertices.push_back({ {-1.0f, -1.0f, 0.0f}, fadeOverlay, {-1.0f, -1.0f} });
+    
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+    
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    m_context->PSSetShaderResources(0, 1, &nullSRV);
+    m_context->Draw(6, 0);
+    
+    // Step 2: Add new spectrum line at the bottom
+    // Get smoothed spectrum data
+    float smoothedSpectrum[256];
+    for (int i = 0; i < 256; i++) {
+        float val = m_useNormalized ? data.SpectrumNormalized[i] : data.Spectrum[i];
+        
+        // Apply smoothing (rolling average of 3)
+        float prev = (i > 0) ? (m_useNormalized ? data.SpectrumNormalized[i-1] : data.Spectrum[i-1]) : val;
+        float next = (i < 255) ? (m_useNormalized ? data.SpectrumNormalized[i+1] : data.Spectrum[i+1]) : val;
+        smoothedSpectrum[i] = (prev + val + next) / 3.0f;
+    }
+    
+    // Helper lambda to draw a line segment with lightning bolt style
+    auto DrawLineSegment = [&](float x1, float y1, float x2, float y2) {
+        XMFLOAT4 lightBlue = {0.4f, 0.7f, 1.0f, 1.0f};  // Light blue outline
+        XMFLOAT4 whiteCore = {1.0f, 1.0f, 1.0f, 1.0f};  // White center
+        
+        float outerThickness = 0.004f;  // Outer blue line thickness
+        float innerThickness = 0.002f;  // Inner white line thickness
+        
+        // Calculate perpendicular offset for line thickness
+        float dx = x2 - x1;
+        float dy = y2 - y1;
+        float len = sqrtf(dx * dx + dy * dy);
+        if (len < 0.0001f) return;
+        
+        float perpX = -dy / len;
+        float perpY = dx / len;
+        
+        // Draw outer (light blue) line
+        vertices.push_back({ {x1 + perpX * outerThickness, y1 + perpY * outerThickness, 0.0f}, lightBlue, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 + perpX * outerThickness, y2 + perpY * outerThickness, 0.0f}, lightBlue, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * outerThickness, y1 - perpY * outerThickness, 0.0f}, lightBlue, {-1.0f, -1.0f} });
+        
+        vertices.push_back({ {x2 + perpX * outerThickness, y2 + perpY * outerThickness, 0.0f}, lightBlue, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 - perpX * outerThickness, y2 - perpY * outerThickness, 0.0f}, lightBlue, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * outerThickness, y1 - perpY * outerThickness, 0.0f}, lightBlue, {-1.0f, -1.0f} });
+        
+        // Draw inner (white) line
+        vertices.push_back({ {x1 + perpX * innerThickness, y1 + perpY * innerThickness, 0.0f}, whiteCore, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 + perpX * innerThickness, y2 + perpY * innerThickness, 0.0f}, whiteCore, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * innerThickness, y1 - perpY * innerThickness, 0.0f}, whiteCore, {-1.0f, -1.0f} });
+        
+        vertices.push_back({ {x2 + perpX * innerThickness, y2 + perpY * innerThickness, 0.0f}, whiteCore, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 - perpX * innerThickness, y2 - perpY * innerThickness, 0.0f}, whiteCore, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * innerThickness, y1 - perpY * innerThickness, 0.0f}, whiteCore, {-1.0f, -1.0f} });
+    };
+    
+    vertices.clear();
+    
+    // Calculate y position at bottom of screen
+    float baseY = -1.0f;
+    float scaleHeight = 0.8f;  // Use 80% of screen height for spectrum
+    
+    // Draw based on mirror mode
+    if (m_lfMirrorMode == LFMirrorMode::None) {
+        // No mirror - full spectrum across screen
+        for (int i = 0; i < 255; i++) {
+            float x1 = -1.0f + (float)i / 255.0f * 2.0f;
+            float x2 = -1.0f + (float)(i + 1) / 255.0f * 2.0f;
+            float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
+            float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
+            
+            DrawLineSegment(x1, y1, x2, y2);
+        }
+    } else if (m_lfMirrorMode == LFMirrorMode::BassEdges) {
+        // Bass at edges - mirror at center
+        // Left half: normal spectrum
+        for (int i = 0; i < 255; i++) {
+            float x1 = -1.0f + (float)i / 255.0f;
+            float x2 = -1.0f + (float)(i + 1) / 255.0f;
+            float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
+            float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
+            
+            DrawLineSegment(x1, y1, x2, y2);
+        }
+        // Right half: flipped spectrum
+        for (int i = 0; i < 255; i++) {
+            float x1 = 1.0f - (float)i / 255.0f;
+            float x2 = 1.0f - (float)(i + 1) / 255.0f;
+            float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
+            float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
+            
+            DrawLineSegment(x1, y1, x2, y2);
+        }
+    } else {  // BassCenter
+        // Bass in center - mirror at edges
+        // Left half: flipped spectrum
+        for (int i = 0; i < 255; i++) {
+            float x1 = 0.0f - (float)i / 255.0f;
+            float x2 = 0.0f - (float)(i + 1) / 255.0f;
+            float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
+            float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
+            
+            DrawLineSegment(x1, y1, x2, y2);
+        }
+        // Right half: normal spectrum
+        for (int i = 0; i < 255; i++) {
+            float x1 = 0.0f + (float)i / 255.0f;
+            float x2 = 0.0f + (float)(i + 1) / 255.0f;
+            float y1 = baseY + smoothedSpectrum[i] * scaleHeight;
+            float y2 = baseY + smoothedSpectrum[i + 1] * scaleHeight;
+            
+            DrawLineSegment(x1, y1, x2, y2);
+        }
+    }
+    
+    // Draw all line segments
+    if (!vertices.empty()) {
+        m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+        memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+        m_context->Unmap(m_vertexBuffer, 0);
+        
+        m_context->Draw((UINT)vertices.size(), 0);
+    }
+    
+    // Step 3: Copy temp back to history for next frame
+    ID3D11Resource* srcResource = nullptr;
+    ID3D11Resource* dstResource = nullptr;
+    m_lfTempTexture->QueryInterface(__uuidof(ID3D11Resource), (void**)&srcResource);
+    m_lfHistoryTexture->QueryInterface(__uuidof(ID3D11Resource), (void**)&dstResource);
+    m_context->CopyResource(dstResource, srcResource);
+    srcResource->Release();
+    dstResource->Release();
+    
+    // Step 4: Render final result to screen
+    m_context->OMSetRenderTargets(1, &m_renderTargetView, NULL);
+    
+    vertices.clear();
+    vertices.push_back({ {-1.0f, 1.0f, 0.0f}, white, {0.0f, 0.0f} });
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, white, {1.0f, 0.0f} });
+    vertices.push_back({ {-1.0f, -1.0f, 0.0f}, white, {0.0f, 1.0f} });
+    
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, white, {1.0f, 0.0f} });
+    vertices.push_back({ {1.0f, -1.0f, 0.0f}, white, {1.0f, 1.0f} });
+    vertices.push_back({ {-1.0f, -1.0f, 0.0f}, white, {0.0f, 1.0f} });
+    
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+    
+    m_context->PSSetShaderResources(0, 1, &m_lfHistorySRV);
+    m_context->Draw(6, 0);
+    
+    m_context->PSSetShaderResources(0, 1, &nullSRV);
+}

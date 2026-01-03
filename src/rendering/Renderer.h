@@ -22,6 +22,7 @@ private:
     void Render();
     void UpdateSpectrumVis(float deltaTime);
     void UpdateCyberValley2Vis(float deltaTime);
+    void UpdateLineFaderVis(float deltaTime);
 
     AudioEngine& m_audioEngine;
     HWND m_hwnd;
@@ -45,7 +46,7 @@ private:
     };
 
     // Visualization State
-    enum class Visualization { Spectrum, CyberValley2 };
+    enum class Visualization { Spectrum, CyberValley2, LineFader };
     Visualization m_currentVis = Visualization::Spectrum;
 
     // Spectrum Vis State
@@ -58,6 +59,17 @@ private:
     float m_cv2GridOffset = 0.0f;     // Grid scroll position (0-1)
     bool m_cv2SunMode = true;         // true = Day, false = Night
     bool m_cv2ShowGrid = true;        // Grid visibility toggle
+
+    // LineFader Vis State
+    int m_lfScrollSpeed = 5;          // Scroll speed in pixels per frame (1-20)
+    enum class LFMirrorMode { None, BassEdges, BassCenter };
+    LFMirrorMode m_lfMirrorMode = LFMirrorMode::BassEdges;
+    ID3D11Texture2D* m_lfHistoryTexture = nullptr;
+    ID3D11ShaderResourceView* m_lfHistorySRV = nullptr;
+    ID3D11RenderTargetView* m_lfHistoryRTV = nullptr;
+    ID3D11Texture2D* m_lfTempTexture = nullptr;
+    ID3D11ShaderResourceView* m_lfTempSRV = nullptr;
+    ID3D11RenderTargetView* m_lfTempRTV = nullptr;
 
     LARGE_INTEGER m_lastTime;
     LARGE_INTEGER m_frequency;

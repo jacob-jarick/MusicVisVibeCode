@@ -27,16 +27,19 @@ int main(int argc, char* argv[]) {
                 } else if (visName == "cybervalley2" || visName == "cv2" || visName == "1") {
                     startVis = 1;
                     std::cout << "Starting with CyberValley2 visualization" << std::endl;
+                } else if (visName == "linefader" || visName == "lf" || visName == "2") {
+                    startVis = 2;
+                    std::cout << "Starting with LineFader visualization" << std::endl;
                 } else {
                     std::cout << "Unknown visualization: " << visName << std::endl;
-                    std::cout << "Available: spectrum (0), cybervalley2/cv2 (1)" << std::endl;
+                    std::cout << "Available: spectrum (0), cybervalley2/cv2 (1), linefader/lf (2)" << std::endl;
                 }
                 i++; // Skip next arg
             }
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: MusicVisVibeCode [options]" << std::endl;
             std::cout << "  --vis, -v <name>      Start with specific visualization" << std::endl;
-            std::cout << "                        Options: spectrum (0), cybervalley2/cv2 (1)" << std::endl;
+            std::cout << "                        Options: spectrum (0), cybervalley2/cv2 (1), linefader/lf (2)" << std::endl;
             std::cout << "  --timeout, -t <sec>   Exit after N seconds (for testing)" << std::endl;
             std::cout << "\nControls:" << std::endl;
             std::cout << "  H: Toggle Help" << std::endl;
