@@ -381,19 +381,23 @@ void Renderer::UpdateTextTexture(const std::string& text, bool rightAlign) {
         FillRect(hdc, &fullRect, hBlackBrush);
         DeleteObject(hBlackBrush);
 
-        // 2. Setup Font
-        HFONT hFont = CreateFont(56, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Comic Sans MS");
+        // 2. Setup Font (slightly smaller to fit more text)
+        HFONT hFont = CreateFont(48, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Comic Sans MS");
         SelectObject(hdc, hFont);
 
         // 3. Measure Text
         RECT textRect = {0, 0, 1024, 1024};
         DrawText(hdc, text.c_str(), -1, &textRect, DT_CALCRECT | DT_WORDBREAK);
         
-        // 4. Calculate Box Size (20% wider and taller)
+        // 4. Calculate Box Size (25% wider and taller to ensure no cutoff)
         int textWidth = textRect.right - textRect.left;
         int textHeight = textRect.bottom - textRect.top;
-        int boxWidth = (int)(textWidth * 1.2f);
-        int boxHeight = (int)(textHeight * 1.2f);
+        int boxWidth = (int)(textWidth * 1.25f);
+        int boxHeight = (int)(textHeight * 1.25f);
+        
+        // Ensure box doesn't exceed texture bounds
+        if (boxWidth > 1004) boxWidth = 1004;  // Leave 20px total padding
+        if (boxHeight > 1004) boxHeight = 1004;
         
         // 5. Position Box
         RECT boxRect;
@@ -548,38 +552,39 @@ void Renderer::RenderOSD() {
         if (m_currentVis == Visualization::Spectrum) {
             ss << "Decay Rate: " << m_decayRate << "\n";
         } else if (m_currentVis == Visualization::CyberValley2) {
-            ss << "Speed: " << m_cv2Speed << "\n";
-            ss << "Mode: " << (m_cv2SunMode ? "Day (Sun)" : "Night (Moon)") << "\n";
+            ss << "Speed: " << m_cv2Speed << " (-/=)\n";
+            ss << "Mode: " << (m_cv2SunMode ? "Day" : "Night") << " (V)\n";
+            ss << "Grid: " << (m_cv2ShowGrid ? "On" : "Off") << " (G)\n";
         } else if (m_currentVis == Visualization::LineFader) {
-            ss << "Scroll Speed: " << m_lfScrollSpeed << " px\n";
-            ss << "Fade Rate: " << std::fixed << std::setprecision(2) << (m_lfFadeRate * 100.0f) << "%\n";
+            ss << "Scroll Speed: " << m_lfScrollSpeed << " px (-/=)\n";
+            ss << "Fade Rate: " << std::fixed << std::setprecision(2) << (m_lfFadeRate * 100.0f) << "% (,/.)\n";
             if (m_lfMirrorMode == LFMirrorMode::None) {
-                ss << "Mirror: None\n";
+                ss << "Mirror: None (M)\n";
             } else if (m_lfMirrorMode == LFMirrorMode::BassEdges) {
-                ss << "Mirror: Bass at Edges\n";
+                ss << "Mirror: Bass at Edges (M)\n";
             } else {
-                ss << "Mirror: Bass in Center\n";
+                ss << "Mirror: Bass in Center (M)\n";
             }
         } else if (m_currentVis == Visualization::Spectrum2) {
-            ss << "Decay Rate: " << m_s2DecayRate << "\n";
+            ss << "Decay Rate: " << m_s2DecayRate << " (-/=)\n";
             if (m_s2MirrorMode == S2MirrorMode::None) {
-                ss << "Mirror: None\n";
+                ss << "Mirror: None (M)\n";
             } else if (m_s2MirrorMode == S2MirrorMode::BassEdges) {
-                ss << "Mirror: Bass at Edges\n";
+                ss << "Mirror: Bass at Edges (M)\n";
             } else {
-                ss << "Mirror: Bass in Center\n";
+                ss << "Mirror: Bass in Center (M)\n";
             }
         } else if (m_currentVis == Visualization::Circle) {
             std::string peakMode;
             if (m_circlePeakMode == CirclePeakMode::Inside) peakMode = "Inside";
             else if (m_circlePeakMode == CirclePeakMode::Outside) peakMode = "Outside";
             else peakMode = "Both";
-            ss << "Peaks: " << peakMode << "\n";
-            ss << "Fade: " << m_circleFadeRate << "%\n";
-            ss << "Zoom: " << m_circleZoomRate << "% (" << (m_circleZoomOut ? "Out" : "In") << ")\n";
-            ss << "Blur: " << m_circleBlurRate << "%\n";
-            ss << "Rotation: " << m_circleRotationSpeed << " deg\n";
-            ss << "Mode: " << (m_circleFillMode ? "Filled" : "Line") << "\n";
+            ss << "Peaks: " << peakMode << " (M)\n";
+            ss << "Fade: " << m_circleFadeRate << "% (,/.)\n";
+            ss << "Zoom: " << m_circleZoomRate << "% " << (m_circleZoomOut ? "Out" : "In") << " (Z)\n";
+            ss << "Blur: " << m_circleBlurRate << "% (;/')\n";
+            ss << "Rotation: " << m_circleRotationSpeed << " deg (K/L)\n";
+            ss << "Mode: " << (m_circleFillMode ? "Filled" : "Line") << " (P)\n";
         }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
         ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No");
