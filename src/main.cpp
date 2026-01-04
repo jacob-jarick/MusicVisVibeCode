@@ -33,19 +33,19 @@ int main(int argc, char* argv[]) {
                 } else if (visName == "spectrum2" || visName == "s2" || visName == "3") {
                     startVis = 3;
                     std::cout << "Starting with Spectrum2 visualization" << std::endl;
-                } else if (visName == "lineracer" || visName == "lr" || visName == "4") {
+                } else if (visName == "circle" || visName == "4") {
                     startVis = 4;
-                    std::cout << "Starting with LineRacer visualization" << std::endl;
+                    std::cout << "Starting with Circle visualization" << std::endl;
                 } else {
                     std::cout << "Unknown visualization: " << visName << std::endl;
-                    std::cout << "Available: spectrum (0), cybervalley2/cv2 (1), linefader/lf (2), spectrum2/s2 (3), lineracer/lr (4)" << std::endl;
+                    std::cout << "Available: spectrum (0), cybervalley2/cv2 (1), linefader/lf (2), spectrum2/s2 (3), circle (4)" << std::endl;
                 }
                 i++; // Skip next arg
             }
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: MusicVisVibeCode [options]" << std::endl;
             std::cout << "  --vis, -v <name>      Start with specific visualization" << std::endl;
-            std::cout << "                        Options: spectrum (0), cybervalley2/cv2 (1), linefader/lf (2), spectrum2/s2 (3), lineracer/lr (4)" << std::endl;
+            std::cout << "                        Options: spectrum (0), cybervalley2/cv2 (1), linefader/lf (2), spectrum2/s2 (3), circle (4)" << std::endl;
             std::cout << "  --timeout, -t <sec>   Exit after N seconds (for testing)" << std::endl;
             std::cout << "\nControls:" << std::endl;
             std::cout << "  H: Toggle Help" << std::endl;

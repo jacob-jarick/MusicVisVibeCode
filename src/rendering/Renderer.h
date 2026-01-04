@@ -25,6 +25,7 @@ private:
     void UpdateCyberValley2Vis(float deltaTime);
     void UpdateLineFaderVis(float deltaTime);
     void UpdateSpectrum2Vis(float deltaTime);
+    void UpdateCircleVis(float deltaTime);
 
     AudioEngine& m_audioEngine;
     HWND m_hwnd;
@@ -48,7 +49,7 @@ private:
     };
 
     // Visualization State
-    enum class Visualization { Spectrum, CyberValley2, LineFader, Spectrum2 };
+    enum class Visualization { Spectrum, CyberValley2, LineFader, Spectrum2, Circle };
     Visualization m_currentVis = Visualization::Spectrum;
 
     // Spectrum Vis State
@@ -82,6 +83,21 @@ private:
     float m_s2DecayRate = 5.0f;       // Segments per second (default: 1 segment every 0.2s)
     enum class S2MirrorMode { None, BassEdges, BassCenter };
     S2MirrorMode m_s2MirrorMode = S2MirrorMode::BassEdges;
+
+    // Circle Vis State
+    float m_circleRotation = 0.0f;    // Current rotation angle in degrees
+    float m_circleRotationSpeed = 0.1f;  // Rotation speed in degrees per frame (default 0.1, range -1.5 to 1.5)
+    float m_circleFadeRate = 1.0f;    // Fade percentage (0-5%, default 1%)
+    float m_circleZoomRate = 1.0f;    // Zoom-out percentage (0-5%, default 1%)
+    float m_circleBlurRate = 1.0f;    // Blur percentage (0-10%, default 1%)
+    bool m_circlePeaksInside = true;  // true = peaks inside circle, false = outside
+    float m_circleHue = 0.0f;         // Current hue for rainbow color cycling (0-360)
+    ID3D11Texture2D* m_circleHistoryTexture = nullptr;
+    ID3D11ShaderResourceView* m_circleHistorySRV = nullptr;
+    ID3D11RenderTargetView* m_circleHistoryRTV = nullptr;
+    ID3D11Texture2D* m_circleTempTexture = nullptr;
+    ID3D11ShaderResourceView* m_circleTempSRV = nullptr;
+    ID3D11RenderTargetView* m_circleTempRTV = nullptr;
 
     LARGE_INTEGER m_lastTime;
     LARGE_INTEGER m_frequency;

@@ -17,7 +17,7 @@ public:
     std::wstring currentBgPath;
     
     // Visualization states
-    int currentVis = 0;  // 0=Spectrum, 1=CyberValley2, 2=LineFader, 3=Spectrum2
+    int currentVis = 0;  // 0=Spectrum, 1=CyberValley2, 2=LineFader, 3=Spectrum2, 4=Circle
     std::vector<bool> visEnabled;  // Track which visualizations are enabled
     
     // Spectrum settings
@@ -37,6 +37,13 @@ public:
     // Spectrum2 settings
     float s2DecayRate = 5.0f;
     int s2MirrorMode = 0;  // 0=None, 1=BassEdges, 2=BassCenter
+    
+    // Circle settings
+    float circleRotationSpeed = 0.1f;  // Rotation speed in degrees per frame
+    float circleFadeRate = 1.0f;       // Fade percentage (0-5%)
+    float circleZoomRate = 1.0f;       // Zoom-out percentage (0-5%)
+    float circleBlurRate = 1.0f;       // Blur percentage (0-10%)
+    bool circlePeaksInside = true;     // true = peaks inside, false = outside
     
     // Config management
     bool Load();

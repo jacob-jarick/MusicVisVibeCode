@@ -272,7 +272,7 @@ void Renderer::Render() {
     m_context->PSSetSamplers(0, 1, &m_samplerState);
 
     // Draw Background
-    if (m_showBackground && m_backgroundSRV && (m_currentVis == Visualization::Spectrum || m_currentVis == Visualization::LineFader || m_currentVis == Visualization::Spectrum2)) {
+    if (m_showBackground && m_backgroundSRV && (m_currentVis == Visualization::Spectrum || m_currentVis == Visualization::LineFader || m_currentVis == Visualization::Spectrum2 || m_currentVis == Visualization::Circle)) {
         float screenAR = (float)m_width / (float)m_height;
         float imageAR = m_bgAspectRatio;
         
@@ -339,6 +339,8 @@ void Renderer::Render() {
         UpdateLineFaderVis(deltaTime);
     } else if (m_currentVis == Visualization::Spectrum2) {
         UpdateSpectrum2Vis(deltaTime);
+    } else if (m_currentVis == Visualization::Circle) {
+        UpdateCircleVis(deltaTime);
     }
     
     RenderOSD();
@@ -497,7 +499,7 @@ void Renderer::RenderOSD() {
                       ",/.: Adjust Fade Rate\n"
                       "-/=: Adjust Scroll Speed\n"
                       "M: Cycle Mirror Mode\n"
-                      "1-4: Jump to Vis\n"
+                      "1-5: Jump to Vis\n"
                       "Left/Right: Change Vis\n"
                       "ESC: Quit";
         } else if (m_currentVis == Visualization::Spectrum2) {
@@ -512,7 +514,26 @@ void Renderer::RenderOSD() {
                       "[/]: Prev/Next Background\n"
                       "-/=: Adjust Decay\n"
                       "M: Cycle Mirror Mode\n"
-                      "1-4: Jump to Vis\n"
+                      "1-5: Jump to Vis\n"
+                      "Left/Right: Change Vis\n"
+                      "R: Random Vis\n"
+                      "ESC: Quit";
+        } else if (m_currentVis == Visualization::Circle) {
+            osdText = "HELP (CIRCLE):\n\n"
+                      "H: Toggle Help\n"
+                      "I: Toggle Info\n"
+                      "C: Toggle Clock\n"
+                      "D: Disable Menu\n"
+                      "X: Reset Settings\n"
+                      "F: Toggle Fullscreen\n"
+                      "B: Random Background\n"
+                      "[/]: Prev/Next Background\n"
+                      ",/.: Adjust Fade %\n"
+                      "-/=: Adjust Zoom-out %\n"
+                      ";/': Adjust Blur %\n"
+                      "K/L: Adjust Rotation Speed\n"
+                      "M: Toggle Peaks Inside/Outside\n"
+                      "1-5: Jump to Vis\n"
                       "Left/Right: Change Vis\n"
                       "R: Random Vis\n"
                       "ESC: Quit";
@@ -546,6 +567,12 @@ void Renderer::RenderOSD() {
             } else {
                 ss << "Mirror: Bass in Center\n";
             }
+        } else if (m_currentVis == Visualization::Circle) {
+            ss << "Peaks: " << (m_circlePeaksInside ? "Inside" : "Outside") << "\n";
+            ss << "Fade: " << m_circleFadeRate << "%\n";
+            ss << "Zoom: " << m_circleZoomRate << "%\n";
+            ss << "Blur: " << m_circleBlurRate << "%\n";
+            ss << "Rotation: " << m_circleRotationSpeed << " deg\n";
         }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
         ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No");
@@ -684,10 +711,16 @@ void Renderer::HandleInput(WPARAM key) {
         if (m_currentVis == Visualization::LineFader) {
             m_lfFadeRate = std::max(0.0005f, m_lfFadeRate - 0.0005f);  // Min 0.05%
             SaveStateToConfig();
+        } else if (m_currentVis == Visualization::Circle) {
+            m_circleFadeRate = std::max(0.0f, m_circleFadeRate - 0.05f);  // Min 0%
+            SaveStateToConfig();
         }
     } else if (key == VK_OEM_PERIOD) {  // '.' Key
         if (m_currentVis == Visualization::LineFader) {
             m_lfFadeRate = std::min(0.005f, m_lfFadeRate + 0.0005f);  // Max 0.50%
+            SaveStateToConfig();
+        } else if (m_currentVis == Visualization::Circle) {
+            m_circleFadeRate = std::min(5.0f, m_circleFadeRate + 0.05f);  // Max 5%
             SaveStateToConfig();
         }
     } else if (key == VK_OEM_MINUS || key == VK_SUBTRACT) {
@@ -703,6 +736,9 @@ void Renderer::HandleInput(WPARAM key) {
         } else if (m_currentVis == Visualization::Spectrum2) {
             m_s2DecayRate = std::max(0.1f, m_s2DecayRate - 0.5f);
             SaveStateToConfig();
+        } else if (m_currentVis == Visualization::Circle) {
+            m_circleZoomRate = std::max(0.0f, m_circleZoomRate - 0.05f);  // Min 0%
+            SaveStateToConfig();
         }
     } else if (key == VK_OEM_PLUS || key == VK_ADD) {
         if (m_currentVis == Visualization::Spectrum) {
@@ -716,6 +752,9 @@ void Renderer::HandleInput(WPARAM key) {
             SaveStateToConfig();
         } else if (m_currentVis == Visualization::Spectrum2) {
             m_s2DecayRate = std::min(20.0f, m_s2DecayRate + 0.5f);
+            SaveStateToConfig();
+        } else if (m_currentVis == Visualization::Circle) {
+            m_circleZoomRate = std::min(5.0f, m_circleZoomRate + 0.05f);  // Max 5%
             SaveStateToConfig();
         }
     } else if (key == 'H') {
@@ -770,6 +809,30 @@ void Renderer::HandleInput(WPARAM key) {
             } else {
                 m_s2MirrorMode = S2MirrorMode::None;
             }
+            SaveStateToConfig();
+        } else if (m_currentVis == Visualization::Circle) {
+            // Toggle peaks inside/outside
+            m_circlePeaksInside = !m_circlePeaksInside;
+            SaveStateToConfig();
+        }
+    } else if (key == VK_OEM_1) {  // ';' Key
+        if (m_currentVis == Visualization::Circle) {
+            m_circleBlurRate = std::max(0.0f, m_circleBlurRate - 0.05f);  // Min 0%
+            SaveStateToConfig();
+        }
+    } else if (key == VK_OEM_7) {  // '\'' Key
+        if (m_currentVis == Visualization::Circle) {
+            m_circleBlurRate = std::min(10.0f, m_circleBlurRate + 0.05f);  // Max 10%
+            SaveStateToConfig();
+        }
+    } else if (key == 'K') {
+        if (m_currentVis == Visualization::Circle) {
+            m_circleRotationSpeed = std::max(-1.5f, m_circleRotationSpeed - 0.1f);  // Min -1.5 degrees
+            SaveStateToConfig();
+        }
+    } else if (key == 'L') {
+        if (m_currentVis == Visualization::Circle) {
+            m_circleRotationSpeed = std::min(1.5f, m_circleRotationSpeed + 0.1f);  // Max 1.5 degrees
             SaveStateToConfig();
         }
     } else if (key == 'F') {
@@ -859,13 +922,24 @@ void Renderer::HandleInput(WPARAM key) {
                 SaveStateToConfig();
             }
         }
+    } else if (key == '5') {
+        if (m_showDisableMenu) {
+            // Toggle Circle enabled/disabled
+            m_config.visEnabled[4] = !m_config.visEnabled[4];
+            m_config.isDirty = true;
+        } else {
+            if (m_config.visEnabled[4]) {
+                m_currentVis = Visualization::Circle;
+                SaveStateToConfig();
+            }
+        }
     } else if (key == 'R') {
         if (m_showDisableMenu) {
             // Disable menu is showing, don't do random
         } else {
             // Random enabled visualization
             std::vector<int> enabledVis;
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 5; i++) {
                 if (m_config.visEnabled[i]) enabledVis.push_back(i);
             }
             if (!enabledVis.empty()) {
@@ -1792,12 +1866,13 @@ std::string Renderer::GetVisualizationName(int vis) {
         case 1: return "CyberValley2";
         case 2: return "LineFader";
         case 3: return "Spectrum2";
+        case 4: return "Circle";
         default: return "Unknown";
     }
 }
 
 int Renderer::GetNextEnabledVis(int currentVis, bool forward) {
-    int numVis = 4;
+    int numVis = 5;
     int nextVis = currentVis;
     int attempts = 0;
     
@@ -1843,6 +1918,12 @@ void Renderer::LoadConfigIntoState() {
     m_s2DecayRate = m_config.s2DecayRate;
     m_s2MirrorMode = (S2MirrorMode)m_config.s2MirrorMode;
     
+    m_circleRotationSpeed = m_config.circleRotationSpeed;
+    m_circleFadeRate = m_config.circleFadeRate;
+    m_circleZoomRate = m_config.circleZoomRate;
+    m_circleBlurRate = m_config.circleBlurRate;
+    m_circlePeaksInside = m_config.circlePeaksInside;
+    
     // Reload background if one was set
     if (m_showBackground && m_currentBgIndex >= 0) {
         if (m_backgroundFiles.empty()) ScanBackgrounds();
@@ -1874,6 +1955,12 @@ void Renderer::SaveStateToConfig() {
     
     m_config.s2DecayRate = m_s2DecayRate;
     m_config.s2MirrorMode = (int)m_s2MirrorMode;
+    
+    m_config.circleRotationSpeed = m_circleRotationSpeed;
+    m_config.circleFadeRate = m_circleFadeRate;
+    m_config.circleZoomRate = m_circleZoomRate;
+    m_config.circleBlurRate = m_circleBlurRate;
+    m_config.circlePeaksInside = m_circlePeaksInside;
     
     m_config.isDirty = true;
 }
@@ -1951,5 +2038,244 @@ void Renderer::RenderClock() {
     
     // Unbind texture
     ID3D11ShaderResourceView* nullSRV = nullptr;
+    m_context->PSSetShaderResources(0, 1, &nullSRV);
+}
+
+void Renderer::UpdateCircleVis(float deltaTime) {
+    const AudioData& data = m_audioEngine.GetData();
+    
+    // Initialize textures if needed
+    if (!m_circleHistoryTexture) {
+        D3D11_TEXTURE2D_DESC desc = {0};
+        desc.Width = m_width;
+        desc.Height = m_height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        
+        m_device->CreateTexture2D(&desc, NULL, &m_circleHistoryTexture);
+        m_device->CreateShaderResourceView(m_circleHistoryTexture, NULL, &m_circleHistorySRV);
+        m_device->CreateRenderTargetView(m_circleHistoryTexture, NULL, &m_circleHistoryRTV);
+        
+        m_device->CreateTexture2D(&desc, NULL, &m_circleTempTexture);
+        m_device->CreateShaderResourceView(m_circleTempTexture, NULL, &m_circleTempSRV);
+        m_device->CreateRenderTargetView(m_circleTempTexture, NULL, &m_circleTempRTV);
+        
+        // Clear ONLY on first frame - never again for tunnel effect
+        float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        m_context->ClearRenderTargetView(m_circleHistoryRTV, clearColor);
+        m_context->ClearRenderTargetView(m_circleTempRTV, clearColor);
+    }
+    
+    std::vector<Vertex> vertices;
+    D3D11_MAPPED_SUBRESOURCE ms;
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    XMFLOAT4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+    
+    // Step 1: Render previous frame to temp with zoom-out effect (RECURSIVE FEEDBACK)
+    // DO NOT CLEAR - this is key for tunnel effect
+    m_context->OMSetRenderTargets(1, &m_circleTempRTV, NULL);
+    
+    // Calculate zoom scale - values > 1.0 create outward tunnel, < 1.0 create inward tunnel
+    // The zoom-out percentage expands the previous frame, pushing it toward edges
+    float zoomScale = 1.0f + (m_circleZoomRate / 100.0f);
+    
+    // Calculate fade alpha - this dims the previous frame
+    float fadeAlpha = 1.0f - (m_circleFadeRate / 100.0f);
+    if (fadeAlpha < 0.0f) fadeAlpha = 0.0f;
+    if (fadeAlpha > 1.0f) fadeAlpha = 1.0f;
+    
+    XMFLOAT4 fadeColor = {fadeAlpha, fadeAlpha, fadeAlpha, 1.0f};
+    
+    // Draw previous frame zoomed out (tunnel effect)
+    vertices.clear();
+    vertices.push_back({ {-zoomScale, zoomScale, 0.0f}, fadeColor, {0.0f, 0.0f} });
+    vertices.push_back({ {zoomScale, zoomScale, 0.0f}, fadeColor, {1.0f, 0.0f} });
+    vertices.push_back({ {-zoomScale, -zoomScale, 0.0f}, fadeColor, {0.0f, 1.0f} });
+    
+    vertices.push_back({ {zoomScale, zoomScale, 0.0f}, fadeColor, {1.0f, 0.0f} });
+    vertices.push_back({ {zoomScale, -zoomScale, 0.0f}, fadeColor, {1.0f, 1.0f} });
+    vertices.push_back({ {-zoomScale, -zoomScale, 0.0f}, fadeColor, {0.0f, 1.0f} });
+    
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+    
+    m_context->IASetVertexBuffers(0, 1, &m_vertexBuffer, &stride, &offset);
+    m_context->IASetInputLayout(m_inputLayout);
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->VSSetShader(m_vertexShader, NULL, 0);
+    m_context->PSSetShader(m_pixelShader, NULL, 0);
+    m_context->PSSetShaderResources(0, 1, &m_circleHistorySRV);
+    m_context->Draw(6, 0);
+    
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    m_context->PSSetShaderResources(0, 1, &nullSRV);
+    
+    // Step 2: Get smoothed spectrum data
+    float smoothedSpectrum[256];
+    for (int i = 0; i < 256; i++) {
+        float val = m_useNormalized ? data.SpectrumNormalized[i] : data.Spectrum[i];
+        
+        // Apply smoothing (rolling average of 3)
+        float prev = (i > 0) ? (m_useNormalized ? data.SpectrumNormalized[i-1] : data.Spectrum[i-1]) : val;
+        float next = (i < 255) ? (m_useNormalized ? data.SpectrumNormalized[i+1] : data.Spectrum[i+1]) : val;
+        smoothedSpectrum[i] = (prev + val + next) / 3.0f;
+    }
+    
+    // Step 3: Update rotation
+    m_circleRotation += m_circleRotationSpeed;
+    if (m_circleRotation >= 360.0f) m_circleRotation -= 360.0f;
+    if (m_circleRotation < 0.0f) m_circleRotation += 360.0f;
+    
+    // Step 4: Update hue for rainbow color cycling
+    m_circleHue += 0.5f;  // Cycle through hues slowly
+    if (m_circleHue >= 360.0f) m_circleHue -= 360.0f;
+    
+    // Convert HSV to RGB for current hue
+    auto HSVtoRGB = [](float h, float s, float v) -> XMFLOAT4 {
+        float c = v * s;
+        float x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f));
+        float m = v - c;
+        
+        float r, g, b;
+        if (h < 60.0f) { r = c; g = x; b = 0; }
+        else if (h < 120.0f) { r = x; g = c; b = 0; }
+        else if (h < 180.0f) { r = 0; g = c; b = x; }
+        else if (h < 240.0f) { r = 0; g = x; b = c; }
+        else if (h < 300.0f) { r = x; g = 0; b = c; }
+        else { r = c; g = 0; b = x; }
+        
+        return XMFLOAT4{r + m, g + m, b + m, 1.0f};
+    };
+    
+    XMFLOAT4 circleColor = HSVtoRGB(m_circleHue, 0.8f, 1.0f);
+    
+    // Step 5: Draw new circle
+    vertices.clear();
+    
+    float centerX = 0.0f;
+    float centerY = 0.0f;
+    float baseRadius = 0.3f;  // Base radius of circle
+    float maxAmplitude = 0.4f;  // Maximum amplitude for spectrum visualization
+    
+    // Create mirrored spectrum (ABCCBA pattern)
+    // We'll use 128 samples, mirrored to create 256 total points
+    int numSamples = 128;
+    float angularStep = 360.0f / (numSamples * 2);  // Total 256 points around circle
+    
+    for (int i = 0; i < numSamples; i++) {
+        // First half (A)
+        float angle1 = m_circleRotation + i * angularStep * 2.0f;
+        float angle2 = m_circleRotation + (i + 1) * angularStep * 2.0f;
+        
+        float amplitude1 = smoothedSpectrum[i * 2] * maxAmplitude;
+        float amplitude2 = smoothedSpectrum[(i + 1) * 2] * maxAmplitude;
+        
+        float radius1, radius2;
+        if (m_circlePeaksInside) {
+            radius1 = baseRadius - amplitude1;
+            radius2 = baseRadius - amplitude2;
+        } else {
+            radius1 = baseRadius + amplitude1;
+            radius2 = baseRadius + amplitude2;
+        }
+        
+        float radian1 = angle1 * 3.14159f / 180.0f;
+        float radian2 = angle2 * 3.14159f / 180.0f;
+        
+        float x1 = centerX + cosf(radian1) * radius1;
+        float y1 = centerY + sinf(radian1) * radius1;
+        float x2 = centerX + cosf(radian2) * radius2;
+        float y2 = centerY + sinf(radian2) * radius2;
+        
+        float x1b = centerX + cosf(radian1) * baseRadius;
+        float y1b = centerY + sinf(radian1) * baseRadius;
+        float x2b = centerX + cosf(radian2) * baseRadius;
+        float y2b = centerY + sinf(radian2) * baseRadius;
+        
+        // Draw segment as triangle strip
+        vertices.push_back({ {x1, y1, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        
+        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+    }
+    
+    // Second half - mirrored (CCB)
+    for (int i = numSamples - 1; i >= 0; i--) {
+        float angle1 = m_circleRotation + (numSamples + (numSamples - 1 - i)) * angularStep * 2.0f;
+        float angle2 = m_circleRotation + (numSamples + (numSamples - i)) * angularStep * 2.0f;
+        
+        float amplitude1 = smoothedSpectrum[i * 2] * maxAmplitude;
+        float amplitude2 = smoothedSpectrum[((i > 0) ? i - 1 : 0) * 2] * maxAmplitude;
+        
+        float radius1, radius2;
+        if (m_circlePeaksInside) {
+            radius1 = baseRadius - amplitude1;
+            radius2 = baseRadius - amplitude2;
+        } else {
+            radius1 = baseRadius + amplitude1;
+            radius2 = baseRadius + amplitude2;
+        }
+        
+        float radian1 = angle1 * 3.14159f / 180.0f;
+        float radian2 = angle2 * 3.14159f / 180.0f;
+        
+        float x1 = centerX + cosf(radian1) * radius1;
+        float y1 = centerY + sinf(radian1) * radius1;
+        float x2 = centerX + cosf(radian2) * radius2;
+        float y2 = centerY + sinf(radian2) * radius2;
+        
+        float x1b = centerX + cosf(radian1) * baseRadius;
+        float y1b = centerY + sinf(radian1) * baseRadius;
+        float x2b = centerX + cosf(radian2) * baseRadius;
+        float y2b = centerY + sinf(radian2) * baseRadius;
+        
+        // Draw segment as triangle strip
+        vertices.push_back({ {x1, y1, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        
+        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+    }
+    
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+    
+    m_context->Draw(vertices.size(), 0);
+    
+    // Step 6: Copy temp texture back to history texture for next frame (feedback loop!)
+    m_context->CopyResource(m_circleHistoryTexture, m_circleTempTexture);
+    
+    // Step 7: Render final result to back buffer
+    m_context->OMSetRenderTargets(1, &m_renderTargetView, NULL);
+    
+    vertices.clear();
+    vertices.push_back({ {-1.0f, 1.0f, 0.0f}, white, {0.0f, 0.0f} });
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, white, {1.0f, 0.0f} });
+    vertices.push_back({ {-1.0f, -1.0f, 0.0f}, white, {0.0f, 1.0f} });
+    
+    vertices.push_back({ {1.0f, 1.0f, 0.0f}, white, {1.0f, 0.0f} });
+    vertices.push_back({ {1.0f, -1.0f, 0.0f}, white, {1.0f, 1.0f} });
+    vertices.push_back({ {-1.0f, -1.0f, 0.0f}, white, {0.0f, 1.0f} });
+    
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+    
+    // Display the current temp texture (which has the new circle + zoomed history)
+    m_context->PSSetShaderResources(0, 1, &m_circleTempSRV);
+    m_context->Draw(6, 0);
+    
     m_context->PSSetShaderResources(0, 1, &nullSRV);
 }

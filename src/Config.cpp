@@ -5,8 +5,8 @@
 #include <filesystem>
 
 Config::Config() {
-    // Initialize with 4 visualizations, all enabled by default
-    visEnabled = {true, true, true, true};
+    // Initialize with 5 visualizations, all enabled by default
+    visEnabled = {true, true, true, true, true};
     
     // Get config path
     WCHAR path[MAX_PATH];
@@ -72,6 +72,11 @@ bool Config::Load() {
         else if (key == "lfMirrorMode") lfMirrorMode = std::stoi(value);
         else if (key == "s2DecayRate") s2DecayRate = std::stof(value);
         else if (key == "s2MirrorMode") s2MirrorMode = std::stoi(value);
+        else if (key == "circleRotationSpeed") circleRotationSpeed = std::stof(value);
+        else if (key == "circleFadeRate") circleFadeRate = std::stof(value);
+        else if (key == "circleZoomRate") circleZoomRate = std::stof(value);
+        else if (key == "circleBlurRate") circleBlurRate = std::stof(value);
+        else if (key == "circlePeaksInside") circlePeaksInside = (value == "1" || value == "true");
         else if (key == "visEnabled") {
             // Parse comma-separated list of 0/1
             visEnabled.clear();
@@ -136,7 +141,14 @@ bool Config::Save() {
     
     file << "# Spectrum2 Settings\n";
     file << "s2DecayRate=" << s2DecayRate << "\n";
-    file << "s2MirrorMode=" << s2MirrorMode << "\n";
+    file << "s2MirrorMode=" << s2MirrorMode << "\n\n";
+    
+    file << "# Circle Settings\n";
+    file << "circleRotationSpeed=" << circleRotationSpeed << "\n";
+    file << "circleFadeRate=" << circleFadeRate << "\n";
+    file << "circleZoomRate=" << circleZoomRate << "\n";
+    file << "circleBlurRate=" << circleBlurRate << "\n";
+    file << "circlePeaksInside=" << (circlePeaksInside ? "1" : "0") << "\n";
     
     file.close();
     isDirty = false;
@@ -154,7 +166,7 @@ void Config::Reset() {
     currentBgPath = L"";
     
     currentVis = 0;
-    visEnabled = {true, true, true, true};
+    visEnabled = {true, true, true, true, true};
     
     spectrumDecayRate = 5.0f;
     
@@ -169,6 +181,12 @@ void Config::Reset() {
     
     s2DecayRate = 5.0f;
     s2MirrorMode = 0;
+    
+    circleRotationSpeed = 0.1f;
+    circleFadeRate = 1.0f;
+    circleZoomRate = 1.0f;
+    circleBlurRate = 1.0f;
+    circlePeaksInside = true;
     
     isDirty = true;
     std::cout << "Config reset to defaults" << std::endl;
