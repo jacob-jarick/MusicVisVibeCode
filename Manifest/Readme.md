@@ -8,7 +8,14 @@ manifest.md will serve as detailed agent guide.
 
 ## Planning
 
-always read from updated Readme.md files and ensure Manifest.md file in same directory matches scope and direction outlined in Readme.md 
+always read from updated Readme.md files and ensure Manifest.md file in same directory matches scope and direction outlined in Readme.md
+
+## Adding New Visualization
+
+1. Look at the vis Readme.md
+2. Generate Manifest.md
+3. Add Vis to CLI option --vis 
+4. Ensure Vis is in Diable Menu
 
 ## Building 
 
@@ -16,10 +23,14 @@ always rebuild on code updates
 
 always use CMake found here "C:\Program Files\CMake\bin;" 
 
+never use cmake or any tools under "C:\Strawberry"
+
 ## testing
 
 for testing we have a way (run exe with --help ) to run a specific visualisation.
 You should do this for each build, to ensure the build runs and doesnt just crash after 2-5 seconds.
+
+Ensure you test the newly added vis, use its name eg linefader and not its number which you sometimes mix up.
 
 # Project Folders and Files
 
