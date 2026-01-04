@@ -722,12 +722,11 @@ void Renderer::HandleInput(WPARAM key) {
         m_showHelp = !m_showHelp;
         if (m_showHelp) {
             m_showInfo = false;
-            m_showClock = false;
             m_showDisableMenu = false;
         }
     } else if (key == 'I') {
         m_showInfo = !m_showInfo;
-        if (m_showInfo) { m_showHelp = false; m_showClock = false; m_showDisableMenu = false; }
+        if (m_showInfo) { m_showHelp = false; m_showDisableMenu = false; }
     } else if (key == 'C') {
         m_showClock = !m_showClock;
         SaveStateToConfig();
