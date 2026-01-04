@@ -103,7 +103,7 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startV
     QueryPerformanceCounter(&m_lastTime);
     
     // Set starting visualization if specified
-    if (startVis >= 0 && startVis <= 3) {
+    if (startVis >= 0 && startVis <= 4) {
         m_currentVis = (Visualization)startVis;
     }
 
@@ -529,10 +529,12 @@ void Renderer::RenderOSD() {
                       "B: Random Background\n"
                       "[/]: Prev/Next Background\n"
                       ",/.: Adjust Fade %\n"
-                      "-/=: Adjust Zoom-out %\n"
+                      "-/=: Adjust Zoom %\n"
                       ";/': Adjust Blur %\n"
                       "K/L: Adjust Rotation Speed\n"
                       "M: Toggle Peaks Inside/Outside\n"
+                      "Z: Toggle Zoom In/Out\n"
+                      "P: Toggle Fill/Line Mode\n"
                       "1-5: Jump to Vis\n"
                       "Left/Right: Change Vis\n"
                       "R: Random Vis\n"
@@ -568,11 +570,16 @@ void Renderer::RenderOSD() {
                 ss << "Mirror: Bass in Center\n";
             }
         } else if (m_currentVis == Visualization::Circle) {
-            ss << "Peaks: " << (m_circlePeaksInside ? "Inside" : "Outside") << "\n";
+            std::string peakMode;
+            if (m_circlePeakMode == CirclePeakMode::Inside) peakMode = "Inside";
+            else if (m_circlePeakMode == CirclePeakMode::Outside) peakMode = "Outside";
+            else peakMode = "Both";
+            ss << "Peaks: " << peakMode << "\n";
             ss << "Fade: " << m_circleFadeRate << "%\n";
-            ss << "Zoom: " << m_circleZoomRate << "%\n";
+            ss << "Zoom: " << m_circleZoomRate << "% (" << (m_circleZoomOut ? "Out" : "In") << ")\n";
             ss << "Blur: " << m_circleBlurRate << "%\n";
             ss << "Rotation: " << m_circleRotationSpeed << " deg\n";
+            ss << "Mode: " << (m_circleFillMode ? "Filled" : "Line") << "\n";
         }
         ss << "Audio Scale: " << m_audioEngine.GetData().Scale << "\n";
         ss << "Playing: " << (m_audioEngine.GetData().playing ? "Yes" : "No");
@@ -811,8 +818,14 @@ void Renderer::HandleInput(WPARAM key) {
             }
             SaveStateToConfig();
         } else if (m_currentVis == Visualization::Circle) {
-            // Toggle peaks inside/outside
-            m_circlePeaksInside = !m_circlePeaksInside;
+            // Cycle through peak modes: Inside -> Outside -> Both -> Inside
+            if (m_circlePeakMode == CirclePeakMode::Inside) {
+                m_circlePeakMode = CirclePeakMode::Outside;
+            } else if (m_circlePeakMode == CirclePeakMode::Outside) {
+                m_circlePeakMode = CirclePeakMode::Both;
+            } else {
+                m_circlePeakMode = CirclePeakMode::Inside;
+            }
             SaveStateToConfig();
         }
     } else if (key == VK_OEM_1) {  // ';' Key
@@ -833,6 +846,16 @@ void Renderer::HandleInput(WPARAM key) {
     } else if (key == 'L') {
         if (m_currentVis == Visualization::Circle) {
             m_circleRotationSpeed = std::min(1.5f, m_circleRotationSpeed + 0.1f);  // Max 1.5 degrees
+            SaveStateToConfig();
+        }
+    } else if (key == 'Z') {
+        if (m_currentVis == Visualization::Circle) {
+            m_circleZoomOut = !m_circleZoomOut;
+            SaveStateToConfig();
+        }
+    } else if (key == 'P') {
+        if (m_currentVis == Visualization::Circle) {
+            m_circleFillMode = !m_circleFillMode;
             SaveStateToConfig();
         }
     } else if (key == 'F') {
@@ -1922,7 +1945,9 @@ void Renderer::LoadConfigIntoState() {
     m_circleFadeRate = m_config.circleFadeRate;
     m_circleZoomRate = m_config.circleZoomRate;
     m_circleBlurRate = m_config.circleBlurRate;
-    m_circlePeaksInside = m_config.circlePeaksInside;
+    m_circlePeakMode = (CirclePeakMode)m_config.circlePeakMode;
+    m_circleZoomOut = m_config.circleZoomOut;
+    m_circleFillMode = m_config.circleFillMode;
     
     // Reload background if one was set
     if (m_showBackground && m_currentBgIndex >= 0) {
@@ -1960,7 +1985,9 @@ void Renderer::SaveStateToConfig() {
     m_config.circleFadeRate = m_circleFadeRate;
     m_config.circleZoomRate = m_circleZoomRate;
     m_config.circleBlurRate = m_circleBlurRate;
-    m_config.circlePeaksInside = m_circlePeaksInside;
+    m_config.circlePeakMode = (int)m_circlePeakMode;
+    m_config.circleZoomOut = m_circleZoomOut;
+    m_config.circleFillMode = m_circleFillMode;
     
     m_config.isDirty = true;
 }
@@ -2076,13 +2103,22 @@ void Renderer::UpdateCircleVis(float deltaTime) {
     UINT offset = 0;
     XMFLOAT4 white = {1.0f, 1.0f, 1.0f, 1.0f};
     
-    // Step 1: Render previous frame to temp with zoom-out effect (RECURSIVE FEEDBACK)
+    // Step 1: Render previous frame to temp with zoom effect (RECURSIVE FEEDBACK)
     // DO NOT CLEAR - this is key for tunnel effect
     m_context->OMSetRenderTargets(1, &m_circleTempRTV, NULL);
     
-    // Calculate zoom scale - values > 1.0 create outward tunnel, < 1.0 create inward tunnel
-    // The zoom-out percentage expands the previous frame, pushing it toward edges
-    float zoomScale = 1.0f + (m_circleZoomRate / 100.0f);
+    // Calculate zoom scale based on zoom direction
+    // Zoom IN (default): scale < 1.0, shrinks previous frame toward center (tunnel moving forward)
+    // Zoom OUT: scale > 1.0, expands previous frame toward edges (tunnel coming at you)
+    float zoomScale;
+    if (m_circleZoomOut) {
+        // Zoom out: expand the frame
+        zoomScale = 1.0f + (m_circleZoomRate / 100.0f);
+    } else {
+        // Zoom in (default): shrink the frame
+        zoomScale = 1.0f - (m_circleZoomRate / 100.0f);
+        if (zoomScale < 0.01f) zoomScale = 0.01f;  // Prevent negative/zero
+    }
     
     // Calculate fade alpha - this dims the previous frame
     float fadeAlpha = 1.0f - (m_circleFadeRate / 100.0f);
@@ -2155,6 +2191,40 @@ void Renderer::UpdateCircleVis(float deltaTime) {
     
     XMFLOAT4 circleColor = HSVtoRGB(m_circleHue, 0.8f, 1.0f);
     
+    // Helper lambda to draw a line segment (like LineFader)
+    auto DrawLineSegment = [&](float x1, float y1, float x2, float y2, XMFLOAT4 color) {
+        float outerThickness = 0.004f;  // Outer line thickness
+        float innerThickness = 0.002f;  // Inner white core thickness
+        
+        // Calculate perpendicular offset for line thickness
+        float dx = x2 - x1;
+        float dy = y2 - y1;
+        float len = sqrtf(dx * dx + dy * dy);
+        if (len < 0.0001f) return;
+        
+        float perpX = -dy / len;
+        float perpY = dx / len;
+        
+        // Draw outer colored line
+        vertices.push_back({ {x1 + perpX * outerThickness, y1 + perpY * outerThickness, 0.0f}, color, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 + perpX * outerThickness, y2 + perpY * outerThickness, 0.0f}, color, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * outerThickness, y1 - perpY * outerThickness, 0.0f}, color, {-1.0f, -1.0f} });
+        
+        vertices.push_back({ {x2 + perpX * outerThickness, y2 + perpY * outerThickness, 0.0f}, color, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 - perpX * outerThickness, y2 - perpY * outerThickness, 0.0f}, color, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * outerThickness, y1 - perpY * outerThickness, 0.0f}, color, {-1.0f, -1.0f} });
+        
+        // Draw inner white core
+        XMFLOAT4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+        vertices.push_back({ {x1 + perpX * innerThickness, y1 + perpY * innerThickness, 0.0f}, white, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 + perpX * innerThickness, y2 + perpY * innerThickness, 0.0f}, white, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * innerThickness, y1 - perpY * innerThickness, 0.0f}, white, {-1.0f, -1.0f} });
+        
+        vertices.push_back({ {x2 + perpX * innerThickness, y2 + perpY * innerThickness, 0.0f}, white, {-1.0f, -1.0f} });
+        vertices.push_back({ {x2 - perpX * innerThickness, y2 - perpY * innerThickness, 0.0f}, white, {-1.0f, -1.0f} });
+        vertices.push_back({ {x1 - perpX * innerThickness, y1 - perpY * innerThickness, 0.0f}, white, {-1.0f, -1.0f} });
+    };
+    
     // Step 5: Draw new circle
     vertices.clear();
     
@@ -2177,12 +2247,15 @@ void Renderer::UpdateCircleVis(float deltaTime) {
         float amplitude2 = smoothedSpectrum[(i + 1) * 2] * maxAmplitude;
         
         float radius1, radius2;
-        if (m_circlePeaksInside) {
+        if (m_circlePeakMode == CirclePeakMode::Inside) {
             radius1 = baseRadius - amplitude1;
             radius2 = baseRadius - amplitude2;
-        } else {
+        } else if (m_circlePeakMode == CirclePeakMode::Outside) {
             radius1 = baseRadius + amplitude1;
             radius2 = baseRadius + amplitude2;
+        } else {  // Both
+            radius1 = baseRadius;
+            radius2 = baseRadius;
         }
         
         float radian1 = angle1 * 3.14159f / 180.0f;
@@ -2193,19 +2266,63 @@ void Renderer::UpdateCircleVis(float deltaTime) {
         float x2 = centerX + cosf(radian2) * radius2;
         float y2 = centerY + sinf(radian2) * radius2;
         
-        float x1b = centerX + cosf(radian1) * baseRadius;
-        float y1b = centerY + sinf(radian1) * baseRadius;
-        float x2b = centerX + cosf(radian2) * baseRadius;
-        float y2b = centerY + sinf(radian2) * baseRadius;
-        
-        // Draw segment as triangle strip
-        vertices.push_back({ {x1, y1, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        
-        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        if (m_circlePeakMode == CirclePeakMode::Both) {
+            // Draw both inside and outside
+            float x1in = centerX + cosf(radian1) * (baseRadius - amplitude1);
+            float y1in = centerY + sinf(radian1) * (baseRadius - amplitude1);
+            float x2in = centerX + cosf(radian2) * (baseRadius - amplitude2);
+            float y2in = centerY + sinf(radian2) * (baseRadius - amplitude2);
+            
+            float x1out = centerX + cosf(radian1) * (baseRadius + amplitude1);
+            float y1out = centerY + sinf(radian1) * (baseRadius + amplitude1);
+            float x2out = centerX + cosf(radian2) * (baseRadius + amplitude2);
+            float y2out = centerY + sinf(radian2) * (baseRadius + amplitude2);
+            
+            if (m_circleFillMode) {
+                // Filled mode - draw triangles
+                float x1b = centerX + cosf(radian1) * baseRadius;
+                float y1b = centerY + sinf(radian1) * baseRadius;
+                float x2b = centerX + cosf(radian2) * baseRadius;
+                float y2b = centerY + sinf(radian2) * baseRadius;
+                
+                // Inside triangle
+                vertices.push_back({ {x1in, y1in, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2in, y2in, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2in, y2in, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                
+                // Outside triangle
+                vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1out, y1out, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1out, y1out, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2out, y2out, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            } else {
+                // Line mode - draw both lines
+                DrawLineSegment(x1in, y1in, x2in, y2in, circleColor);
+                DrawLineSegment(x1out, y1out, x2out, y2out, circleColor);
+            }
+        } else if (m_circleFillMode) {
+            // Filled mode - draw triangles from base to peaks
+            float x1b = centerX + cosf(radian1) * baseRadius;
+            float y1b = centerY + sinf(radian1) * baseRadius;
+            float x2b = centerX + cosf(radian2) * baseRadius;
+            float y2b = centerY + sinf(radian2) * baseRadius;
+            
+            vertices.push_back({ {x1, y1, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            
+            vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        } else {
+            // Line mode - draw just the outline
+            DrawLineSegment(x1, y1, x2, y2, circleColor);
+        }
     }
     
     // Second half - mirrored (CCB)
@@ -2217,12 +2334,15 @@ void Renderer::UpdateCircleVis(float deltaTime) {
         float amplitude2 = smoothedSpectrum[((i > 0) ? i - 1 : 0) * 2] * maxAmplitude;
         
         float radius1, radius2;
-        if (m_circlePeaksInside) {
+        if (m_circlePeakMode == CirclePeakMode::Inside) {
             radius1 = baseRadius - amplitude1;
             radius2 = baseRadius - amplitude2;
-        } else {
+        } else if (m_circlePeakMode == CirclePeakMode::Outside) {
             radius1 = baseRadius + amplitude1;
             radius2 = baseRadius + amplitude2;
+        } else {  // Both
+            radius1 = baseRadius;
+            radius2 = baseRadius;
         }
         
         float radian1 = angle1 * 3.14159f / 180.0f;
@@ -2233,19 +2353,63 @@ void Renderer::UpdateCircleVis(float deltaTime) {
         float x2 = centerX + cosf(radian2) * radius2;
         float y2 = centerY + sinf(radian2) * radius2;
         
-        float x1b = centerX + cosf(radian1) * baseRadius;
-        float y1b = centerY + sinf(radian1) * baseRadius;
-        float x2b = centerX + cosf(radian2) * baseRadius;
-        float y2b = centerY + sinf(radian2) * baseRadius;
-        
-        // Draw segment as triangle strip
-        vertices.push_back({ {x1, y1, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        
-        vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
-        vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        if (m_circlePeakMode == CirclePeakMode::Both) {
+            // Draw both inside and outside
+            float x1in = centerX + cosf(radian1) * (baseRadius - amplitude1);
+            float y1in = centerY + sinf(radian1) * (baseRadius - amplitude1);
+            float x2in = centerX + cosf(radian2) * (baseRadius - amplitude2);
+            float y2in = centerY + sinf(radian2) * (baseRadius - amplitude2);
+            
+            float x1out = centerX + cosf(radian1) * (baseRadius + amplitude1);
+            float y1out = centerY + sinf(radian1) * (baseRadius + amplitude1);
+            float x2out = centerX + cosf(radian2) * (baseRadius + amplitude2);
+            float y2out = centerY + sinf(radian2) * (baseRadius + amplitude2);
+            
+            if (m_circleFillMode) {
+                // Filled mode - draw triangles
+                float x1b = centerX + cosf(radian1) * baseRadius;
+                float y1b = centerY + sinf(radian1) * baseRadius;
+                float x2b = centerX + cosf(radian2) * baseRadius;
+                float y2b = centerY + sinf(radian2) * baseRadius;
+                
+                // Inside triangle
+                vertices.push_back({ {x1in, y1in, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2in, y2in, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2in, y2in, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                
+                // Outside triangle
+                vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1out, y1out, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x1out, y1out, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2out, y2out, 0.0f}, circleColor, {-1.0f, -1.0f} });
+                vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            } else {
+                // Line mode - draw both lines
+                DrawLineSegment(x1in, y1in, x2in, y2in, circleColor);
+                DrawLineSegment(x1out, y1out, x2out, y2out, circleColor);
+            }
+        } else if (m_circleFillMode) {
+            // Filled mode - draw triangles from base to peaks
+            float x1b = centerX + cosf(radian1) * baseRadius;
+            float y1b = centerY + sinf(radian1) * baseRadius;
+            float x2b = centerX + cosf(radian2) * baseRadius;
+            float y2b = centerY + sinf(radian2) * baseRadius;
+            
+            vertices.push_back({ {x1, y1, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            
+            vertices.push_back({ {x1b, y1b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x2b, y2b, 0.0f}, circleColor, {-1.0f, -1.0f} });
+            vertices.push_back({ {x2, y2, 0.0f}, circleColor, {-1.0f, -1.0f} });
+        } else {
+            // Line mode - draw just the outline
+            DrawLineSegment(x1, y1, x2, y2, circleColor);
+        }
     }
     
     m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);

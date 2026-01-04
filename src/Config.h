@@ -41,9 +41,11 @@ public:
     // Circle settings
     float circleRotationSpeed = 0.1f;  // Rotation speed in degrees per frame
     float circleFadeRate = 1.0f;       // Fade percentage (0-5%)
-    float circleZoomRate = 1.0f;       // Zoom-out percentage (0-5%)
+    float circleZoomRate = 1.0f;       // Zoom percentage (0-5%)
     float circleBlurRate = 1.0f;       // Blur percentage (0-10%)
-    bool circlePeaksInside = true;     // true = peaks inside, false = outside
+    int circlePeakMode = 0;            // 0=Inside, 1=Outside, 2=Both
+    bool circleZoomOut = false;        // false = zoom in, true = zoom out
+    bool circleFillMode = false;       // false = line only, true = filled
     
     // Config management
     bool Load();

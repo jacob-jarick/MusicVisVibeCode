@@ -16,7 +16,9 @@ Circle will slowly rotate
 - -/=: decrease/ increase zoomout percentage, Max 5%, min 0% (off) increments of 0.05%, default 1%
 - ;/': decrease/ increase blur percentage, Max 10%, min 0% (off) increments of 0.05%, default 1%
 - k/l: change rotation degrees amount, Min -1.5 degrees, max 1.5 degrees, (0 degrees = stop rotation), increments 0.1 degrees, default 0.1 degrees.
-- m: toggle peaks between inside of circle and outside 
+- m: cycle peaks between inside of circle and outside and both 
+- z: toggle zoom out / zoom in (default zoom out)
+- p: toggle "fill in line" and "line no fill" (default no fill)
  
 # Design
 

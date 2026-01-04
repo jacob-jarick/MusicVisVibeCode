@@ -88,9 +88,12 @@ private:
     float m_circleRotation = 0.0f;    // Current rotation angle in degrees
     float m_circleRotationSpeed = 0.1f;  // Rotation speed in degrees per frame (default 0.1, range -1.5 to 1.5)
     float m_circleFadeRate = 1.0f;    // Fade percentage (0-5%, default 1%)
-    float m_circleZoomRate = 1.0f;    // Zoom-out percentage (0-5%, default 1%)
+    float m_circleZoomRate = 1.0f;    // Zoom percentage (0-5%, default 1%)
     float m_circleBlurRate = 1.0f;    // Blur percentage (0-10%, default 1%)
-    bool m_circlePeaksInside = true;  // true = peaks inside circle, false = outside
+    enum class CirclePeakMode { Inside, Outside, Both };
+    CirclePeakMode m_circlePeakMode = CirclePeakMode::Inside;  // Where peaks appear
+    bool m_circleZoomOut = false;     // false = zoom in (default), true = zoom out
+    bool m_circleFillMode = false;    // false = line only (default), true = filled
     float m_circleHue = 0.0f;         // Current hue for rainbow color cycling (0-360)
     ID3D11Texture2D* m_circleHistoryTexture = nullptr;
     ID3D11ShaderResourceView* m_circleHistorySRV = nullptr;

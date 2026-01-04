@@ -76,7 +76,9 @@ bool Config::Load() {
         else if (key == "circleFadeRate") circleFadeRate = std::stof(value);
         else if (key == "circleZoomRate") circleZoomRate = std::stof(value);
         else if (key == "circleBlurRate") circleBlurRate = std::stof(value);
-        else if (key == "circlePeaksInside") circlePeaksInside = (value == "1" || value == "true");
+        else if (key == "circlePeakMode") circlePeakMode = std::stoi(value);
+        else if (key == "circleZoomOut") circleZoomOut = (value == "1" || value == "true");
+        else if (key == "circleFillMode") circleFillMode = (value == "1" || value == "true");
         else if (key == "visEnabled") {
             // Parse comma-separated list of 0/1
             visEnabled.clear();
@@ -148,7 +150,9 @@ bool Config::Save() {
     file << "circleFadeRate=" << circleFadeRate << "\n";
     file << "circleZoomRate=" << circleZoomRate << "\n";
     file << "circleBlurRate=" << circleBlurRate << "\n";
-    file << "circlePeaksInside=" << (circlePeaksInside ? "1" : "0") << "\n";
+    file << "circlePeakMode=" << circlePeakMode << "\n";
+    file << "circleZoomOut=" << (circleZoomOut ? "1" : "0") << "\n";
+    file << "circleFillMode=" << (circleFillMode ? "1" : "0") << "\n";
     
     file.close();
     isDirty = false;
@@ -186,7 +190,9 @@ void Config::Reset() {
     circleFadeRate = 1.0f;
     circleZoomRate = 1.0f;
     circleBlurRate = 1.0f;
-    circlePeaksInside = true;
+    circlePeakMode = 0;
+    circleZoomOut = false;
+    circleFillMode = false;
     
     isDirty = true;
     std::cout << "Config reset to defaults" << std::endl;
