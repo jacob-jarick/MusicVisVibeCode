@@ -68,6 +68,11 @@ private:
     // Text Rendering
     ID3D11Texture2D* m_textTexture = nullptr;
     ID3D11ShaderResourceView* m_textSRV = nullptr;
+    
+    // Clock Rendering (separate from text OSD)
+    ID3D11Texture2D* m_clockTexture = nullptr;
+    ID3D11ShaderResourceView* m_clockSRV = nullptr;
+    
     ID3D11SamplerState* m_samplerState = nullptr;
     ID3D11BlendState* m_blendState = nullptr;
     
@@ -89,7 +94,9 @@ private:
     void RenderOSD();
     void RenderClock();
     void UpdateTextTexture(const std::string& text, bool rightAlign = false);
+    void UpdateClockTexture(const std::string& text);
     void CreateTextResources();
+    void CreateClockResources();
     
     // Config & Visualization Management
     void LoadConfigIntoState();

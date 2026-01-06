@@ -203,6 +203,7 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startV
     m_device->CreateSamplerState(&sampDesc, &m_samplerState);
 
     CreateTextResources();
+    CreateClockResources();
 
     // Initialize visualizations
     m_visualizations[0] = std::make_unique<SpectrumVis>();
@@ -379,6 +380,73 @@ void Renderer::CreateTextResources() {
 
     m_device->CreateTexture2D(&desc, NULL, &m_textTexture);
     m_device->CreateShaderResourceView(m_textTexture, NULL, &m_textSRV);
+}
+
+void Renderer::CreateClockResources() {
+    // Create texture for clock rendering (256x256 for clock display)
+    D3D11_TEXTURE2D_DESC desc = {0};
+    desc.Width = 256;
+    desc.Height = 256;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // GDI compatible format
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+    desc.MiscFlags = D3D11_RESOURCE_MISC_GDI_COMPATIBLE;
+
+    m_device->CreateTexture2D(&desc, NULL, &m_clockTexture);
+    m_device->CreateShaderResourceView(m_clockTexture, NULL, &m_clockSRV);
+
+    // Initialize with empty clock text
+    UpdateClockTexture("");
+}
+
+void Renderer::UpdateClockTexture(const std::string& text) {
+    if (!m_clockTexture) return;
+
+    // Get texture from D3D11 (use IDXGISurface1 for GetDC support)
+    IDXGISurface1* pSurface = nullptr;
+    m_clockTexture->QueryInterface(__uuidof(IDXGISurface1), (void**)&pSurface);
+    if (!pSurface) return;
+
+    HDC hdc = nullptr;
+    pSurface->GetDC(FALSE, &hdc);
+    if (hdc) {
+        // Clear to transparent black
+        RECT rect = {0, 0, 256, 256};
+        FillRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
+
+        // Create larger font for clock (48pt)
+        HFONT hFont = CreateFontA(
+            48,                       // Height (larger for clock)
+            0,                        // Width
+            0,                        // Escapement
+            0,                        // Orientation
+            FW_BOLD,                  // Weight (bold)
+            FALSE,                    // Italic
+            FALSE,                    // Underline
+            FALSE,                    // StrikeOut
+            DEFAULT_CHARSET,          // CharSet
+            OUT_DEFAULT_PRECIS,       // OutputPrecision
+            CLIP_DEFAULT_PRECIS,      // ClipPrecision
+            CLEARTYPE_QUALITY,        // Quality
+            DEFAULT_PITCH | FF_DONTCARE, // PitchAndFamily
+            "Consolas");
+
+        HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        SetBkMode(hdc, TRANSPARENT);
+
+        // Draw text right-aligned
+        DrawTextA(hdc, text.c_str(), -1, &rect, DT_RIGHT | DT_TOP | DT_NOCLIP);
+
+        SelectObject(hdc, hOldFont);
+        DeleteObject(hFont);
+
+        pSurface->ReleaseDC(nullptr);
+    }
+    pSurface->Release();
 }
 
 void Renderer::UpdateTextTexture(const std::string& text, bool rightAlign) {
@@ -941,30 +1009,39 @@ void Renderer::RenderClock() {
     
     std::string clockText = ss.str();
     
-    // Create separate texture for clock (smaller than OSD)
-    UpdateTextTexture(clockText, true);
+    // Update clock-specific texture with larger font
+    UpdateClockTexture(clockText);
 
-    // Render clock in top-right corner (same size as help/info)
-    std::vector<Vertex> vertices;
-    float w = 0.8f; // Same width as help/info
-    float h = 0.8f; // Same height as help/info
-    float padding = 0.05f;
-    float x = 1.0f - w - padding; // Top Right
+    // Clock dimensions (smaller dedicated area, top-right)
+    float clockWidth = 0.25f;   // Narrower than OSD
+    float clockHeight = 0.15f;  // Shorter than OSD
+    float padding = 0.02f;
+    
+    // Position in top-right corner
+    float x = 1.0f - clockWidth - padding;
     float y = 1.0f - padding;
 
-    XMFLOAT4 color = {1.0f, 1.0f, 1.0f, 1.0f};
+    // Draw semi-transparent black background (50% opacity, 20% larger)
+    float bgPadding = 0.2f; // 20% larger
+    float bgWidth = clockWidth * (1.0f + bgPadding);
+    float bgHeight = clockHeight * (1.0f + bgPadding);
+    float bgX = x - (clockWidth * bgPadding * 0.5f);
+    float bgY = y + (clockHeight * bgPadding * 0.5f);
     
-    vertices.push_back({ {x, y, 0.0f}, color, {0.0f, 0.0f} });
-    vertices.push_back({ {x + w, y, 0.0f}, color, {1.0f, 0.0f} });
-    vertices.push_back({ {x, y - h, 0.0f}, color, {0.0f, 1.0f} });
+    std::vector<Vertex> bgVertices;
+    XMFLOAT4 bgColor = {0.0f, 0.0f, 0.0f, 0.5f}; // Black, 50% transparent
+    
+    bgVertices.push_back({ {bgX, bgY, 0.0f}, bgColor, {-1.0f, -1.0f} });
+    bgVertices.push_back({ {bgX + bgWidth, bgY, 0.0f}, bgColor, {-1.0f, -1.0f} });
+    bgVertices.push_back({ {bgX, bgY - bgHeight, 0.0f}, bgColor, {-1.0f, -1.0f} });
 
-    vertices.push_back({ {x + w, y, 0.0f}, color, {1.0f, 0.0f} });
-    vertices.push_back({ {x + w, y - h, 0.0f}, color, {1.0f, 1.0f} });
-    vertices.push_back({ {x, y - h, 0.0f}, color, {0.0f, 1.0f} });
+    bgVertices.push_back({ {bgX + bgWidth, bgY, 0.0f}, bgColor, {-1.0f, -1.0f} });
+    bgVertices.push_back({ {bgX + bgWidth, bgY - bgHeight, 0.0f}, bgColor, {-1.0f, -1.0f} });
+    bgVertices.push_back({ {bgX, bgY - bgHeight, 0.0f}, bgColor, {-1.0f, -1.0f} });
 
     D3D11_MAPPED_SUBRESOURCE ms;
     m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-    memcpy(ms.pData, vertices.data(), vertices.size() * sizeof(Vertex));
+    memcpy(ms.pData, bgVertices.data(), bgVertices.size() * sizeof(Vertex));
     m_context->Unmap(m_vertexBuffer, 0);
 
     UINT stride = sizeof(Vertex);
@@ -974,7 +1051,28 @@ void Renderer::RenderClock() {
     m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_context->VSSetShader(m_vertexShader, NULL, 0);
     m_context->PSSetShader(m_pixelShader, NULL, 0);
-    m_context->PSSetShaderResources(0, 1, &m_textSRV);
+
+    // Draw background (no texture)
+    m_context->Draw(6, 0);
+
+    // Now draw clock text on top
+    std::vector<Vertex> textVertices;
+    XMFLOAT4 textColor = {1.0f, 1.0f, 1.0f, 1.0f};
+    
+    textVertices.push_back({ {x, y, 0.0f}, textColor, {0.0f, 0.0f} });
+    textVertices.push_back({ {x + clockWidth, y, 0.0f}, textColor, {1.0f, 0.0f} });
+    textVertices.push_back({ {x, y - clockHeight, 0.0f}, textColor, {0.0f, 1.0f} });
+
+    textVertices.push_back({ {x + clockWidth, y, 0.0f}, textColor, {1.0f, 0.0f} });
+    textVertices.push_back({ {x + clockWidth, y - clockHeight, 0.0f}, textColor, {1.0f, 1.0f} });
+    textVertices.push_back({ {x, y - clockHeight, 0.0f}, textColor, {0.0f, 1.0f} });
+
+    m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, textVertices.data(), textVertices.size() * sizeof(Vertex));
+    m_context->Unmap(m_vertexBuffer, 0);
+
+    m_context->IASetVertexBuffers(0, 1, &m_vertexBuffer, &stride, &offset);
+    m_context->PSSetShaderResources(0, 1, &m_clockSRV);
 
     m_context->Draw(6, 0);
     
