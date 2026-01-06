@@ -383,10 +383,10 @@ void Renderer::CreateTextResources() {
 }
 
 void Renderer::CreateClockResources() {
-    // Create texture for clock rendering (256x256 for clock display)
+    // Create texture for clock rendering (1024x512 for 2:1 aspect ratio)
     D3D11_TEXTURE2D_DESC desc = {0};
-    desc.Width = 256;
-    desc.Height = 256;
+    desc.Width = 1024;
+    desc.Height = 512;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
     desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // GDI compatible format
@@ -414,12 +414,12 @@ void Renderer::UpdateClockTexture(const std::string& text) {
     pSurface->GetDC(FALSE, &hdc);
     if (hdc) {
         // Clear to transparent black
-        RECT rect = {0, 0, 256, 256};
+        RECT rect = {0, 0, 1024, 512};
         FillRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
 
-        // Create larger font for clock (48pt)
+        // Create larger font for clock (96pt for 1024x512 texture)
         HFONT hFont = CreateFontA(
-            48,                       // Height (larger for clock)
+            96,                       // Height (doubled for larger texture)
             0,                        // Width
             0,                        // Escapement
             0,                        // Orientation
@@ -1012,9 +1012,9 @@ void Renderer::RenderClock() {
     // Update clock-specific texture with larger font
     UpdateClockTexture(clockText);
 
-    // Clock dimensions (smaller dedicated area, top-right)
-    float clockWidth = 0.25f;   // Narrower than OSD
-    float clockHeight = 0.15f;  // Shorter than OSD
+    // Clock dimensions (2:1 aspect ratio to match texture, large size)
+    float clockWidth = 0.6f;    // Width (increased)
+    float clockHeight = 0.3f;   // Height (half of width for 2:1 aspect)
     float padding = 0.02f;
     
     // Position in top-right corner
