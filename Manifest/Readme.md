@@ -32,6 +32,8 @@ You should do this for each build, to ensure the build runs and doesnt just cras
 
 Ensure you test the newly added vis, use its name eg linefader and not its number which you sometimes mix up.
 
+ensure you run with the timeout option
+
 # Project Folders and Files
 
 - Backgrounds: collection of images that can be used as visualization backgrounds.
