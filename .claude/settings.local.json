@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./MusicVisVibeCode.exe:*)",
+      "Bash(copy .buildMusicVisVibeCode.exe .)"
+    ]
+  }
+}
