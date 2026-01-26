@@ -9,13 +9,20 @@ int main(int argc, char* argv[]) {
     // Parse CLI arguments
     int startVis = -1; // -1 = default (Spectrum)
     float timeoutSeconds = 0.0f; // 0 = no timeout
-    
+    float snapshotSeconds = 0.0f; // 0 = no snapshot
+
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--timeout" || arg == "-t") {
             if (i + 1 < argc) {
                 timeoutSeconds = std::stof(argv[i + 1]);
                 std::cout << "Will exit after " << timeoutSeconds << " seconds" << std::endl;
+                i++; // Skip next arg
+            }
+        } else if (arg == "--snapshot" || arg == "-s") {
+            if (i + 1 < argc) {
+                snapshotSeconds = std::stof(argv[i + 1]);
+                std::cout << "Will take snapshot after " << snapshotSeconds << " seconds" << std::endl;
                 i++; // Skip next arg
             }
         } else if (arg == "--vis" || arg == "-v") {
@@ -47,6 +54,7 @@ int main(int argc, char* argv[]) {
             std::cout << "  --vis, -v <name>      Start with specific visualization" << std::endl;
             std::cout << "                        Options: spectrum (0), cybervalley2/cv2 (1), linefader/lf (2), spectrum2/s2 (3), circle (4)" << std::endl;
             std::cout << "  --timeout, -t <sec>   Exit after N seconds (for testing)" << std::endl;
+            std::cout << "  --snapshot, -s <sec>  Take screenshot after N seconds (saved to snapshot.png)" << std::endl;
             std::cout << "\nControls:" << std::endl;
             std::cout << "  H: Toggle Help" << std::endl;
             std::cout << "  Left/Right: Switch visualization" << std::endl;
@@ -67,7 +75,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    renderer.Run(timeoutSeconds);
+    renderer.Run(timeoutSeconds, snapshotSeconds);
 
     return 0;
 }

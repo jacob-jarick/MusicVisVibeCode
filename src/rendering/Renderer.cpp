@@ -239,10 +239,12 @@ bool Renderer::Initialize(HINSTANCE hInstance, int width, int height, int startV
     return true;
 }
 
-void Renderer::Run(float timeoutSeconds) {
+void Renderer::Run(float timeoutSeconds, float snapshotSeconds) {
     m_timeoutSeconds = timeoutSeconds;
+    m_snapshotSeconds = snapshotSeconds;
+    m_snapshotTaken = false;
     m_runningTime = 0.0f;
-    
+
     MSG msg = {0};
     while (msg.message != WM_QUIT) {
         if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
@@ -250,14 +252,21 @@ void Renderer::Run(float timeoutSeconds) {
             DispatchMessage(&msg);
         } else {
             Render();
-            
+
             // Periodically save config if dirty (every 5 seconds)
             m_config.timeSinceLastSave += 0.016f; // Approximate frame time
             if (m_config.isDirty && m_config.timeSinceLastSave >= 5.0f) {
                 m_config.Save();
                 m_config.timeSinceLastSave = 0.0f;
             }
-            
+
+            // Check snapshot
+            if (m_snapshotSeconds > 0.0f && !m_snapshotTaken && m_runningTime >= m_snapshotSeconds) {
+                std::cout << "Taking snapshot at " << m_snapshotSeconds << "s..." << std::endl;
+                SaveSnapshot("snapshot.png");
+                m_snapshotTaken = true;
+            }
+
             // Check timeout
             if (m_timeoutSeconds > 0.0f && m_runningTime >= m_timeoutSeconds) {
                 std::cout << "Timeout reached (" << m_timeoutSeconds << "s), exiting..." << std::endl;
@@ -1075,8 +1084,112 @@ void Renderer::RenderClock() {
     m_context->PSSetShaderResources(0, 1, &m_clockSRV);
 
     m_context->Draw(6, 0);
-    
+
     // Unbind texture
     ID3D11ShaderResourceView* nullSRV = nullptr;
     m_context->PSSetShaderResources(0, 1, &nullSRV);
+}
+
+void Renderer::SaveSnapshot(const std::string& filename) {
+    // Get backbuffer texture
+    ID3D11Texture2D* backBuffer = nullptr;
+    HRESULT hr = m_swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
+    if (FAILED(hr)) {
+        std::cerr << "Failed to get backbuffer for snapshot" << std::endl;
+        return;
+    }
+
+    // Get backbuffer description
+    D3D11_TEXTURE2D_DESC backBufferDesc;
+    backBuffer->GetDesc(&backBufferDesc);
+
+    // Create staging texture for CPU readback
+    D3D11_TEXTURE2D_DESC stagingDesc = backBufferDesc;
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.BindFlags = 0;
+    stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    stagingDesc.MiscFlags = 0;
+
+    ID3D11Texture2D* stagingTexture = nullptr;
+    hr = m_device->CreateTexture2D(&stagingDesc, nullptr, &stagingTexture);
+    if (FAILED(hr)) {
+        std::cerr << "Failed to create staging texture for snapshot" << std::endl;
+        backBuffer->Release();
+        return;
+    }
+
+    // Copy backbuffer to staging texture
+    m_context->CopyResource(stagingTexture, backBuffer);
+
+    // Map the staging texture
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    hr = m_context->Map(stagingTexture, 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(hr)) {
+        std::cerr << "Failed to map staging texture for snapshot" << std::endl;
+        stagingTexture->Release();
+        backBuffer->Release();
+        return;
+    }
+
+    // Create GDI+ bitmap
+    Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(backBufferDesc.Width, backBufferDesc.Height, PixelFormat32bppARGB);
+
+    // Copy pixel data
+    Gdiplus::BitmapData bitmapData;
+    Gdiplus::Rect rect(0, 0, backBufferDesc.Width, backBufferDesc.Height);
+    bitmap->LockBits(&rect, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bitmapData);
+
+    BYTE* source = (BYTE*)mapped.pData;
+    BYTE* dest = (BYTE*)bitmapData.Scan0;
+
+    for (UINT y = 0; y < backBufferDesc.Height; y++) {
+        memcpy(dest + y * bitmapData.Stride, source + y * mapped.RowPitch, backBufferDesc.Width * 4);
+    }
+
+    bitmap->UnlockBits(&bitmapData);
+
+    // Unmap staging texture
+    m_context->Unmap(stagingTexture, 0);
+
+    // Get PNG encoder CLSID
+    CLSID pngClsid;
+    UINT num = 0;
+    UINT size = 0;
+    Gdiplus::GetImageEncodersSize(&num, &size);
+    Gdiplus::ImageCodecInfo* pImageCodecInfo = (Gdiplus::ImageCodecInfo*)(malloc(size));
+    Gdiplus::GetImageEncoders(num, size, pImageCodecInfo);
+
+    bool found = false;
+    for (UINT i = 0; i < num; i++) {
+        if (wcscmp(pImageCodecInfo[i].MimeType, L"image/png") == 0) {
+            pngClsid = pImageCodecInfo[i].Clsid;
+            found = true;
+            break;
+        }
+    }
+    free(pImageCodecInfo);
+
+    if (!found) {
+        std::cerr << "PNG encoder not found" << std::endl;
+        delete bitmap;
+        stagingTexture->Release();
+        backBuffer->Release();
+        return;
+    }
+
+    // Convert filename to wide string
+    std::wstring wFilename(filename.begin(), filename.end());
+
+    // Save to PNG
+    Gdiplus::Status status = bitmap->Save(wFilename.c_str(), &pngClsid, nullptr);
+    if (status != Gdiplus::Ok) {
+        std::cerr << "Failed to save snapshot to " << filename << std::endl;
+    } else {
+        std::cout << "Snapshot saved to " << filename << std::endl;
+    }
+
+    // Cleanup
+    delete bitmap;
+    stagingTexture->Release();
+    backBuffer->Release();
 }

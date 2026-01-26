@@ -18,7 +18,7 @@ public:
     ~Renderer();
 
     bool Initialize(HINSTANCE hInstance, int width, int height, int startVis = -1);
-    void Run(float timeoutSeconds = 0.0f);
+    void Run(float timeoutSeconds = 0.0f, float snapshotSeconds = 0.0f);
 
 private:
     static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -52,6 +52,8 @@ private:
     int m_frameCount = 0;
     float m_timeElapsed = 0.0f;
     float m_timeoutSeconds = 0.0f;
+    float m_snapshotSeconds = 0.0f;
+    bool m_snapshotTaken = false;
     float m_runningTime = 0.0f;
 
     // OSD State
@@ -97,6 +99,7 @@ private:
     void UpdateClockTexture(const std::string& text);
     void CreateTextResources();
     void CreateClockResources();
+    void SaveSnapshot(const std::string& filename);
     
     // Config & Visualization Management
     void LoadConfigIntoState();

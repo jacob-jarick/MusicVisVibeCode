@@ -15,20 +15,25 @@ This project uses CMake with MinGW on Windows.
 ### Build Commands
 
 ```bash
+# Kill existing process if running (prevents file lock errors)
+taskkill /F /IM MusicVisVibeCode.exe 2>/dev/null || true
+
 # Clean build (recommended after code changes)
 rm -rf build && mkdir build && cd build
 "C:\Program Files\CMake\bin\cmake.exe" -G "MinGW Makefiles" ..
 mingw32-make
 
-# Incremental build
+# Incremental build (faster when only source files changed)
 cd build
 mingw32-make
 
 # Sync executable to root (for GitHub publishing)
-copy .\build\MusicVisVibeCode.exe .
+cp ./build/MusicVisVibeCode.exe ./MusicVisVibeCode.exe
 ```
 
 **Always rebuild after code updates** - the Manifest files explicitly require this.
+
+**Note**: Use `taskkill` before rebuilding to ensure the executable isn't locked by a running process.
 
 ### Testing
 
@@ -37,6 +42,9 @@ Test builds using CLI arguments to verify the executable doesn't crash:
 ```bash
 # Test specific visualization with timeout
 ./MusicVisVibeCode.exe --vis <name> --timeout 5
+
+# Test with snapshot for visual debugging (saves snapshot.png after 2 seconds)
+./MusicVisVibeCode.exe --vis cybervalley2 --snapshot 2 --timeout 5
 
 # Available visualizations
 ./MusicVisVibeCode.exe --vis spectrum --timeout 5
@@ -50,6 +58,8 @@ Test builds using CLI arguments to verify the executable doesn't crash:
 ```
 
 **IMPORTANT**: When testing new visualizations, use the visualization NAME (e.g., "linefader") not its number. Always include the `--timeout` option.
+
+**Snapshot Feature**: Use `--snapshot <seconds>` to automatically save a PNG screenshot after N seconds. This is useful for debugging visual updates without manually taking screenshots. The snapshot time should be shorter than the timeout value.
 
 ## Architecture
 
@@ -171,3 +181,38 @@ Three mutually exclusive overlays (Help, Info, Clock):
 - Use visualization names (not numbers) in CLI and code references
 - Circular buffers use index offsets, not array shifting
 - Config auto-saves but can be manually triggered
+
+## Recent Visual Updates (CyberValley2)
+
+### 2026-01-26 - CyberValley2 Enhancements
+
+**Sun/Moon Improvements:**
+- **Size**: Doubled from radius 0.15 to 0.30 for more prominent celestial body
+- **Position**: Repositioned so bottom 1/5th is below horizon (partially setting/rising)
+- **Stripes**: Changed from dark overlays to transparent "cut-out" gaps showing sky through
+  - Uses sky gradient color to create authentic vaporwave aesthetic
+  - 5 horizontal stripes across lower 40% of orb
+  - Creates classic retro/outrun sun appearance with visible gaps between slices
+
+**Road Enhancements:**
+- **Edge Lines**: Added white lines at outer road boundaries (left and right edges)
+  - Slightly thicker (0.004 units) than center lines
+  - Defines road boundaries and enhances perspective depth
+- **Grid Overlay**: Softened to 30% opacity for subtle wireframe-under-asphalt effect
+- **Cats Eyes**: Enhanced with dual-layer glow effect
+  - Australian-style dual pairs positioned ON white lines (not between)
+  - Outer glow layer (2.5x core size, semi-transparent yellow)
+  - Bright core reflector for high visibility
+  - Bigger size (0.012 units) for prominence
+
+**New CLI Features:**
+- **Snapshot Option**: `--snapshot <seconds>` to auto-save screenshot for visual debugging
+  - Saves to `snapshot.png` in current directory
+  - Example: `./MusicVisVibeCode.exe --vis cybervalley2 --snapshot 2 --timeout 5`
+  - Useful for quickly capturing visual state without manual screenshots
+
+**Build Process:**
+- Added `taskkill` command to build workflow to prevent file lock errors
+- Ensures clean builds even if previous instance is running
+
+These changes create a more authentic 1980s synthwave/outrun aesthetic with better road definition and a more dramatic celestial body that properly "sets" into the horizon.

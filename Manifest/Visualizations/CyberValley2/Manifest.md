@@ -28,12 +28,16 @@ Mountains are NOT live-reacting meshes. They are frozen historical snapshots:
   - Bottom (at horizon): Cyber Purple (#8000CC / RGB 0.5, 0.0, 0.8)
 
 #### Sun/Moon
-- **Position**: STATIC - Centered above the horizon (X=0, Y=0.55 in NDC).
-- **Size**: Radius 0.15 in NDC.
+- **Position**: STATIC - Centered on horizon (X=0), positioned so bottom 1/5th is below horizon.
+- **Size**: Radius 0.30 in NDC (twice original size).
+- **Aspect Ratio Correction**: X coordinates scaled by 1/aspectRatio for perfect circle on all screens.
 - **Day (Sun)**: Solid Yellow (#FFFF00) with glow halo.
+  - Vaporwave horizontal stripes: 5 transparent gaps (sky-colored cut-outs) across lower 40%, creating classic retro aesthetic.
 - **Night (Moon)**: Pale White/Blue (#CCCCFF) with glow halo.
+  - Vaporwave horizontal stripes: 5 transparent gaps (sky-colored cut-outs) across lower 40%, creating classic retro aesthetic.
 - **Toggle**: V key switches between Day/Night modes (does NOT rotate).
 - **Audio Reactivity**: NONE. Celestial bodies are completely static.
+- **Rendering**: Stripes use sky gradient color to create "see-through" effect, showing the background sky.
 
 ### 3. Mountain Geometry (Immutable Historical Snapshots)
 
@@ -62,15 +66,45 @@ Mountains are NOT live-reacting meshes. They are frozen historical snapshots:
 - **Perspective Scaling**: `perspectiveScale = 1.0f - z * 0.9f` (1.0 at bottom, 0.1 at horizon).
 - **Y Position**: `baseY = -1.0f + z * (HORIZON_Y + 1.0f)` (interpolates bottom to horizon).
 
-#### Rendering
-- **Style**: 0.15 half-width (X from -0.15 to 0.15, scaled with perspective).
-- **Vertical Lines**: 5 evenly spaced lines converging from bottom to horizon center.
-- **Horizontal Lines**: 30 lines, using same `m_cv2GridOffset` as mountains for synchronized scrolling.
+### 4. Road Rendering
 
-#### Rendering
-- **Style**: Thin wireframe lines.
-- **Color**: Same as mountain color (Magenta Day / Cyan Night).
+#### Surface
+- **Color**: Dark asphalt blue-gray (#141418 / RGB 0.08, 0.08, 0.10) for bitumen appearance.
+- **Drawn from**: Horizon to bottom of screen.
+
+#### Road Edge Lines
+- **Position**: Two white lines at the outer edges of the road (left and right boundaries).
+- **Style**: Bright white (#FFFFFF) continuous lines, slightly thicker (0.004 units).
+- **Segments**: 30 vertical segments scrolling with `m_gridOffset`.
+- **Perspective**: Same as grid (perspScale = 1.0f - z * 0.7f).
+- **Purpose**: Define road boundaries and enhance perspective depth.
+
+#### Dual White Center Lines
+- **Position**: Two parallel white lines running down the exact center of the road.
+- **Spacing**: 0.01 NDC units apart (before perspective scaling).
+- **Style**: Bright white (#FFFFFF) for high visibility.
+- **Segments**: 30 vertical segments scrolling with `m_gridOffset`.
+- **Perspective**: Same as grid (perspScale = 1.0f - z * 0.7f).
+- **Rendering**: Lines converge toward vanishing point at horizon center.
+
+#### Cats Eyes (Reflectors)
+- **Position**: Australian-style dual pairs ON each white line (not between).
+- **Frequency**: Every 3rd road segment (spaced for realism).
+- **Design**: Two-layer glow effect:
+  - Outer glow: Large semi-transparent yellow halo (2.5x core size, 40% opacity).
+  - Core reflector: Bright yellowish-white diamond (#FFFFE6 / RGB 1.0, 1.0, 0.8).
+- **Size**: 0.012 NDC units (scaled with perspective) - highly visible.
+- **Pairs**: One cat's eye on left white line, one on right white line.
+- **Purpose**: Add depth cues and classic highway aesthetic with realistic reflector glow.
+
+#### Grid Lines (Optional Overlay)
+- **Style**: Thin wireframe lines with soft overlay effect.
+- **Color**: Softened mountain color at 30% opacity (subtle wireframe visible under asphalt).
 - **Toggle**: `G` key toggles grid visibility.
+- **Width**: 0.15 half-width (X from -0.15 to 0.15, scaled with perspective).
+- **Vertical Lines**: 5 evenly spaced lines converging from bottom to horizon center.
+- **Horizontal Lines**: 15 lines, using same `m_gridOffset` for synchronized scrolling.
+- **Purpose**: Subtle depth grid like wireframe visible through road texture.
 
 ### 5. Atmospheric Effects
 
@@ -99,28 +133,33 @@ bool m_cv2ShowGrid = true;        // Grid visibility toggle
 ## Implementation Notes
 1. **Critical**: Use `HistoryNormalized[histIdx][bin]` where `histIdx` is calculated from z-position, NOT from row index.
 2. **Mountains**: Each line must reference historical data based on its scrolled position to maintain immutability.
-3. **Synchronization**: `m_cv2GridOffset` drives mountains, road, and starfield movement together.
-4. Draw sky gradient as a full-screen quad from top to horizon.
-5. Draw ground as a solid color quad from horizon to bottom.
-6. Mountains are drawn as connected line segments (thick lines using perpendicular offset).
-7. All geometry uses solid color mode (UV = {-1, -1} to skip texture sampling).
-8. **Bins Used**: First 224 bins only (bins 0-223), excluding high-frequency bins 224-255
+3. **Synchronization**: `m_gridOffset` drives mountains, road, dual lines, cats eyes, and starfield movement together.
+4. **Aspect Ratio**: Sun/Moon X coordinates are scaled by 1/aspectRatio to maintain perfect circle on all screen sizes.
+5. Draw sky gradient as a full-screen quad from top to horizon.
+6. Draw ground as a solid asphalt-colored quad from horizon to bottom.
+7. Mountains are drawn as connected line segments (thick lines using perpendicular offset).
+8. Dual white center lines and cats eyes render in front of grid (lower Z values).
+9. All geometry uses solid color mode (UV = {-1, -1} to skip texture sampling).
+10. **Bins Used**: First 224 bins only (bins 0-223), excluding high-frequency bins 224-255.
+
+## Controls
+
+| Key | Action |
+| --- | ------ |
+| V | Toggle Day/Night Mode (Sun/Moon) |
+| G | Toggle Road Grid Visibility |
 | - | Decrease movement speed |
 | = | Increase movement speed |
 
 ## Member Variables Required
 ```cpp
 // CyberValley2 State
-float m_cv2Time = 0.0f;           // Day/night cycle timer (0-600 seconds)
-float m_cv2Speed = 0.5f;          // Movement speed
-float m_cv2GridOffset = 0.0f;     // Grid scroll position (0-1)
-bool m_cv2SunMode = true;         // true = Day, false = Night
-bool m_cv2ShowGrid = true;        // Grid visibility toggle
+float m_time = 0.0f;              // Timer for animated effects (clouds, stars)
+float m_speed = 50.0f;            // Movement speed (5-200%, percentage of 1 unit/sec)
+float m_gridOffset = 0.0f;        // Scroll position (0-1, wraps)
+bool m_sunMode = false;           // true = Day, false = Night
+bool m_showGrid = true;           // Grid visibility toggle
+float m_mountainHistory[60][256]; // Frozen historical spectrum snapshots
+int m_historyWriteIndex = 0;     // Current write position in circular buffer
+float m_timeSinceLastLine = 0.0f; // Time accumulator for 30Hz line generation
 ```
-
-## Implementation Notes
-1. Use `SpectrumNormalized[256]` for mountain height values.
-2. Draw sky gradient as a full-screen quad from top to horizon.
-3. Draw ground as a solid color quad from horizon to bottom.
-4. Mountains are drawn as connected line segments (triangle strips for thickness).
-5. All geometry uses solid color mode (UV = {-1, -1} to skip texture sampling).

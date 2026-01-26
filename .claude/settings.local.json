@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(./MusicVisVibeCode.exe:*)",
-      "Bash(copy .buildMusicVisVibeCode.exe .)"
+      "Bash(copy .buildMusicVisVibeCode.exe .)",
+      "Bash(mingw32-make)",
+      "Bash(taskkill:*)"
     ]
   }
 }
